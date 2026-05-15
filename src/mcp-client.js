@@ -220,13 +220,16 @@ function parseQuillToolResponse(text) {
 
 function parseMeetings(text) {
   const meetings = [];
-  const meetingPattern = /<meeting\s+([^>]*)>\s*<title>([\s\S]*?)<\/title>\s*<\/meeting>/g;
+  const meetingPattern = /<meeting\s+([^>]*?)(?:\/>|>([\s\S]*?)<\/meeting>)/g;
   let match;
   while ((match = meetingPattern.exec(text)) !== null) {
     const attrs = parseAttributes(match[1]);
+    const body = match[2] || "";
     meetings.push({
       id: attrs.id,
-      title: decodeXml(match[2].trim()),
+      title: childText(body, "title") || attrs.title,
+      blurb: childText(body, "blurb") || attrs.blurb,
+      summary: childText(body, "summary") || attrs.summary,
       date: attrs.date,
       duration: attrs.duration,
       participants: attrs.participants,
@@ -235,6 +238,11 @@ function parseMeetings(text) {
     });
   }
   return meetings;
+}
+
+function childText(text, tag) {
+  const match = text.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`));
+  return match ? decodeXml(match[1].trim()) : undefined;
 }
 
 function parseAttributes(text) {

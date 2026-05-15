@@ -83,6 +83,7 @@ From the list
 
 From a detail panel
   b or Esc        Back to the list
+  c               Copy the current panel content to clipboard
   n               Switch to notes
   t               Switch to transcript
   a               Generate action-item note after confirmation
@@ -92,7 +93,7 @@ From a detail panel
   q               Quit
 ```
 
-Browse renders meeting details, notes, and transcripts as readable panels. This is intentionally separate from normal command output, which defaults to human tables and supports compact TOON/JSON for agents.
+Browse uses an Ink-powered fullscreen terminal UI with color, keyboard navigation, viewport-aware lists, scrollable detail panels, clipboard copy, and confirmation screens for generated notes. This is intentionally separate from normal command output, which defaults to human tables and supports compact TOON/JSON for agents.
 
 Commands that need a meeting ID also open the picker in a real terminal:
 
@@ -311,7 +312,7 @@ Code layout:
 ```text
 bin/quill.js          CLI entrypoint and top-level error handling
 src/cli.js            command parsing, routing, help, and MCP command wiring
-src/browser.js        interactive meeting browser
+src/browser.js        Ink-powered interactive meeting browser
 src/config.js         JSON config defaults, path resolution, get/set helpers
 src/mcp-client.js     Quill MCP bridge client and ToolResponse parsing
 src/format.js         TOON/JSON/human output shaping, truncation, field selection

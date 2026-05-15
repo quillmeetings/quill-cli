@@ -693,7 +693,8 @@ Notes:
 
 Keys:
   Enter=view, n=notes, t=transcript, a=actions, f=follow-up
-  y=confirm note generation, b=back, /=search, ?=help, q=quit
+  c=copy current panel, y=confirm note generation, b=back
+  /=search, ?=help, q=quit
 
 Agent mode:
   Browse is interactive and disabled with \`--json\`, \`--agent\`, or QUILL_AGENT_MODE=1.

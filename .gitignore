@@ -1,5 +1,6 @@
 .claude/
 .cursorrules
+node_modules/
 AGENTS.md
 CLAUDE.md
 GEMINI.md
