@@ -2,14 +2,19 @@ import { emitKeypressEvents } from "node:readline";
 import { extractToolResult } from "./mcp-client.js";
 import { buildArgs, findTool } from "./tool-router.js";
 
-export function runMeetingBrowser(client, tools, meetings, options, pickerOptions = {}) {
+export function runMeetingBrowser(client, tools, meetings, options, pickerOptions = {}, helpers = {}) {
   return new Promise((resolve) => {
+    const initialMeetings = meetings;
+    let currentMeetings = meetings;
     let selected = 0;
     let query = "";
+    let serverQuery = "";
     let mode = "list";
     let showHelp = false;
     let panel = null;
-    let filtered = meetings;
+    let filtered = currentMeetings;
+    let searching = false;
+    let searchError = "";
     const stdin = process.stdin;
     const wasRaw = stdin.isRaw;
 
@@ -32,15 +37,39 @@ export function runMeetingBrowser(client, tools, meetings, options, pickerOption
     const refreshFilter = () => {
       const normalized = query.trim().toLowerCase();
       filtered = normalized
-        ? meetings.filter((meeting) => [
+        ? currentMeetings.filter((meeting) => [
           meeting.title,
           meeting.date,
           meeting.duration,
           meeting.participants,
           meeting.tags,
         ].filter(Boolean).join(" ").toLowerCase().includes(normalized))
-        : meetings;
+        : currentMeetings;
       selected = Math.min(selected, Math.max(filtered.length - 1, 0));
+    };
+
+    const runServerSearch = async (q) => {
+      if (!helpers.searchMeetings) {
+        searchError = "Server search is not available in this context.";
+        render();
+        return;
+      }
+      searching = true;
+      searchError = "";
+      render();
+      try {
+        const results = await helpers.searchMeetings(q);
+        currentMeetings = Array.isArray(results) ? results : [];
+        serverQuery = q;
+        query = "";
+        selected = 0;
+        refreshFilter();
+      } catch (error) {
+        searchError = `${error.code || "search_failed"}: ${error.message || String(error)}`;
+      } finally {
+        searching = false;
+        render();
+      }
     };
 
     const loadPanel = async (action) => {
@@ -86,13 +115,28 @@ export function runMeetingBrowser(client, tools, meetings, options, pickerOption
         return;
       }
 
-      process.stdout.write("Enter=view  n=notes  t=transcript  / filter  ? help  q=quit\n");
-      process.stdout.write(query ? `filter: ${query}\n\n` : "\n");
+      if (mode === "filter") {
+        process.stdout.write("type=filter live  Enter=server search  Esc=cancel\n");
+        process.stdout.write(`search: ${query}█\n`);
+      } else {
+        process.stdout.write("Enter=view  n=notes  t=transcript  /=search  ? help  q=quit\n");
+        if (searching) process.stdout.write("\n");
+        else if (serverQuery) process.stdout.write(`server results for "${serverQuery}"  (Esc to clear)\n`);
+        else process.stdout.write("\n");
+      }
+      if (searchError) process.stdout.write(`${searchError}\n`);
+      process.stdout.write("\n");
 
       if (showHelp) renderHelp();
 
+      if (searching) {
+        process.stdout.write(`Searching for "${query || serverQuery}"...\n`);
+        return;
+      }
+
       if (filtered.length === 0) {
-        process.stdout.write("No meetings match this filter.\n");
+        const highlight = (query || serverQuery) ? ` for "${query || serverQuery}"` : "";
+        process.stdout.write(`No meetings${highlight}.\n`);
         return;
       }
 
@@ -113,17 +157,39 @@ export function runMeetingBrowser(client, tools, meetings, options, pickerOption
       process.stdout.write("  n              Open notes/minutes\n");
       process.stdout.write("  t              Open transcript\n");
       process.stdout.write("  b              Back to list from a detail panel\n");
-      process.stdout.write("  /              Filter visible meetings\n");
-      process.stdout.write("  Esc            Clear filter/help/panel, then quit\n");
+      process.stdout.write("  /              Search (live filter while typing, Enter fetches from server)\n");
+      process.stdout.write("  Esc            Clear search/help/panel, then quit\n");
       process.stdout.write("  q              Quit\n");
       process.stdout.write("  ?              Toggle this help\n\n");
     };
 
     const onKeypress = (str, key = {}) => {
       if (key.ctrl && key.name === "c") return finish(null);
+      if (searching) return;
       if (mode === "filter") {
-        if (key.name === "return" || key.name === "escape") mode = "list";
-        else if (key.name === "backspace") query = query.slice(0, -1);
+        if (key.name === "return") {
+          mode = "list";
+          const trimmed = query.trim();
+          if (trimmed.length === 0) {
+            if (serverQuery) {
+              currentMeetings = initialMeetings;
+              serverQuery = "";
+              selected = 0;
+              refreshFilter();
+            }
+            render();
+            return;
+          }
+          runServerSearch(trimmed);
+          return;
+        }
+        if (key.name === "escape") {
+          mode = "list";
+          refreshFilter();
+          render();
+          return;
+        }
+        if (key.name === "backspace") query = query.slice(0, -1);
         else if (str && !key.ctrl && !key.meta && str >= " ") query += str;
         refreshFilter();
         render();
@@ -156,11 +222,21 @@ export function runMeetingBrowser(client, tools, meetings, options, pickerOption
       else if (str === "/") {
         mode = "filter";
         showHelp = false;
+        searchError = "";
       } else if (str === "?") showHelp = !showHelp;
-      else if (key.name === "escape" && (showHelp || query)) {
-        showHelp = false;
-        query = "";
-        refreshFilter();
+      else if (key.name === "escape" && (showHelp || query || serverQuery || searchError)) {
+        if (query) {
+          query = "";
+          refreshFilter();
+        } else if (serverQuery) {
+          currentMeetings = initialMeetings;
+          serverQuery = "";
+          selected = 0;
+          refreshFilter();
+        } else {
+          showHelp = false;
+          searchError = "";
+        }
       } else if (str === "q" || key.name === "escape") return finish(null);
       else if ((key.name === "return" || str === "\r") && filtered[selected]) {
         loadPanel("view");

@@ -65,9 +65,9 @@ From the list
   Enter           View selected meeting
   n               Open notes/minutes
   t               Open transcript
-  /               Filter the visible list
+  /               Search (live filter while typing, Enter fetches from server)
   ?               Toggle help
-  q or Esc        Quit
+  q or Esc        Quit (Esc first clears active search/filter)
 
 From a detail panel (view, notes, or transcript)
   b or Esc        Back to the list

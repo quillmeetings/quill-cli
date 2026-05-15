@@ -345,11 +345,19 @@ async function browseMeetings(client, tools, options, values, pickerOptions = {}
 
   const tool = findTool(tools, "listMeetings");
   if (!tool) throw cliError("tool_route_unavailable", "Cannot list recent meetings to choose an id.");
-  const result = extractToolResult(await client.callTool(tool.name, buildSearchMeetingsArgs(values)));
-  const meetings = result.meetings || [];
+
+  const searchMeetings = async (query) => {
+    const result = extractToolResult(await client.callTool(tool.name, buildSearchMeetingsArgs({
+      ...values,
+      query,
+    })));
+    return result.meetings || [];
+  };
+
+  const meetings = await searchMeetings(values.query);
   if (meetings.length === 0) throw cliError("no_meetings", "No recent meetings found.");
 
-  return runMeetingBrowser(client, tools, meetings, options, pickerOptions);
+  return runMeetingBrowser(client, tools, meetings, options, pickerOptions, { searchMeetings });
 }
 
 function applyTimeFlags(values) {
