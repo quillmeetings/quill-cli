@@ -66,6 +66,8 @@ b                Back to the meeting list from a detail panel
 q or Esc          Quit
 ```
 
+Browse renders meeting details, notes, and transcripts as readable panels. This is intentionally separate from the compact TOON/JSON output used by normal commands and agents.
+
 Commands that need a meeting ID also open the picker in a real terminal:
 
 ```bash

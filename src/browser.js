@@ -1,5 +1,4 @@
 import { emitKeypressEvents } from "node:readline";
-import { shapeForOutput, toToon } from "./format.js";
 import { extractToolResult } from "./mcp-client.js";
 import { buildArgs, findTool } from "./tool-router.js";
 
@@ -62,10 +61,9 @@ export function runMeetingBrowser(client, tools, meetings, options, pickerOption
         if (!tool) throw browserError("tool_route_unavailable", `Could not find a Quill MCP tool for ${route}`);
         const args = buildArgs(tool, { id: meeting.id });
         const result = extractToolResult(await client.callTool(tool.name, args));
-        const shaped = shapeForOutput({ tool: tool.name, result }, { ...options, human: false });
         panel = {
           title: `${actionLabel(action)}: ${meeting.title || "(untitled)"}`,
-          body: toToon(shaped.result || shaped),
+          body: formatBrowsePanel(action, meeting, result),
         };
       } catch (error) {
         panel = {
@@ -188,6 +186,66 @@ function actionLabel(action) {
   return "Meeting";
 }
 
+function formatBrowsePanel(action, meeting, result) {
+  if (action === "view") return formatMeetingPanel(result, meeting);
+  if (action === "notes") return formatTextPanel(result, "No notes found for this meeting.");
+  if (action === "transcript") return formatTextPanel(result, "No transcript found for this meeting.");
+  return formatTextPanel(result, "");
+}
+
+function formatMeetingPanel(result, fallbackMeeting) {
+  const meeting = result?.meetings?.[0] || fallbackMeeting || {};
+  const rows = [
+    ["Title", meeting.title || "(untitled)"],
+    ["Date", formatLongDate(meeting.date)],
+    ["Duration", meeting.duration],
+    ["Participants", splitList(meeting.participants).join(", ")],
+    ["Tags", splitList(meeting.tags).join(", ")],
+    ["ID", meeting.id],
+    ["URL", meeting.url],
+  ].filter(([, value]) => value);
+
+  return rows.map(([label, value]) => `${label.padEnd(12)} ${value}`).join("\n");
+}
+
+function formatTextPanel(result, emptyMessage) {
+  if (!result) return emptyMessage;
+  if (typeof result === "string") return cleanText(result) || emptyMessage;
+  if (typeof result.message === "string") return cleanText(result.message) || emptyMessage;
+  if (typeof result.text === "string") return cleanText(result.text) || emptyMessage;
+
+  for (const key of ["notes", "transcripts", "items"]) {
+    if (Array.isArray(result[key])) {
+      const rendered = result[key].map((item) => renderRecord(item)).filter(Boolean).join("\n\n");
+      return rendered || emptyMessage;
+    }
+  }
+
+  return renderRecord(result) || emptyMessage;
+}
+
+function renderRecord(record) {
+  if (!record || typeof record !== "object") return cleanText(String(record || ""));
+  const body = record.body || record.text || record.content || record.markdown || record.message;
+  const title = record.title || record.name;
+  if (body) return [title, cleanText(body)].filter(Boolean).join("\n\n");
+  return Object.entries(record)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .map(([key, value]) => `${humanLabel(key).padEnd(12)} ${Array.isArray(value) ? value.join(", ") : value}`)
+    .join("\n");
+}
+
+function cleanText(value) {
+  return String(value)
+    .replace(/^<ToolResponse>\s*/s, "")
+    .replace(/\s*<\/ToolResponse>$/s, "")
+    .replace(/<system-instruction>[\s\S]*?<\/system-instruction>/g, "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function truncatePanel(value, limit = 5000) {
   if (value.length <= limit) return value;
   return `${value.slice(0, limit)}\n... (truncated in browse view; use command with --full for complete output)`;
@@ -221,6 +279,28 @@ function formatShortDate(value) {
     month: "short",
     day: "numeric",
   });
+}
+
+function formatLongDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value || "";
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function splitList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  return String(value).split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function humanLabel(value) {
+  return String(value).replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function browserError(code, message) {
