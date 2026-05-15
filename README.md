@@ -22,25 +22,29 @@ Or run without linking:
 node bin/quill.js --help
 ```
 
-## Quill MCP Setup
+## Prerequisite: Quill MCP Bridge
 
-By default, the CLI uses Quill's local MCP bridge:
+The CLI talks to Quill through a local MCP bridge that ships with the Quill desktop app. On macOS the bridge lives at:
+
+```text
+~/Library/Application Support/Quill/mcp-stdio-bridge.js
+```
+
+If your bridge is elsewhere, point the CLI at it:
+
+```bash
+export QUILL_MCP_BRIDGE="/path/to/mcp-stdio-bridge.js"
+```
+
+The equivalent MCP client config looks like:
 
 ```json
 {
   "quill": {
     "command": "node",
-    "args": [
-      "/Users/dawa/Library/Application Support/Quill/mcp-stdio-bridge.js"
-    ]
+    "args": ["<absolute path to mcp-stdio-bridge.js>"]
   }
 }
-```
-
-Override the bridge path when needed:
-
-```bash
-export QUILL_MCP_BRIDGE="/path/to/mcp-stdio-bridge.js"
 ```
 
 ## Human Workflow
@@ -56,14 +60,21 @@ quill meetings browse --search "roadmap"
 Keyboard controls:
 
 ```text
-up/down or j/k   Move selection
-Enter            View selected meeting inside browse
-n                Open notes/minutes inside browse
-t                Open transcript inside browse
-b                Back to the meeting list from a detail panel
-/                Filter the visible list
-?                Toggle help
-q or Esc          Quit
+From the list
+  up/down, j/k    Move selection
+  Enter           View selected meeting
+  n               Open notes/minutes
+  t               Open transcript
+  /               Filter the visible list
+  ?               Toggle help
+  q or Esc        Quit
+
+From a detail panel (view, notes, or transcript)
+  b or Esc        Back to the list
+  n               Switch to notes
+  t               Switch to transcript
+  Enter           Re-open the meeting view
+  q               Quit
 ```
 
 Browse renders meeting details, notes, and transcripts as readable panels. This is intentionally separate from the compact TOON/JSON output used by normal commands and agents.
@@ -126,21 +137,26 @@ Global flags:
 --fields <a,b,c>        Select list fields
 --full                  Disable large text truncation
 --truncate <chars>      Large text truncation limit
--o, --format toon|json  Select output format
+-o, --format <fmt>      Select output format: toon or json
 -l, --limit <n>         Default result limit
 -h, --help              Show help
 -v, --version           Show version
 ```
 
-Interactive browsing is rejected in agent mode:
+Interactive browsing is disabled in agent mode. `quill browse --json` returns a structured error instead of prompting:
 
-```bash
-quill browse --json
+```json
+{
+  "error": {
+    "code": "interactive_unavailable",
+    "message": "Interactive browsing is disabled in agent mode. Use `quill meetings list --json`."
+  }
+}
 ```
 
-returns a structured error instead of prompting.
-
 ## Output
+
+Default output is TOON: a compact, YAML-like format that's cheap to scan and cheap on LLM context. Use `--json` for machine consumers, `--human` or `--table` for a wider terminal view.
 
 Default compact output:
 
@@ -195,7 +211,7 @@ quill completion bash
 quill completion fish
 ```
 
-Current completion is static command completion. Dynamic completion for recent meeting IDs should come after a local cache exists.
+Completion covers commands and subcommands. Meeting IDs are not currently completed.
 
 ## Design Principles
 
@@ -230,6 +246,7 @@ Code layout:
 bin/quill.js          CLI entrypoint and top-level error handling
 src/cli.js            command parsing, routing, help, and MCP command wiring
 src/browser.js        interactive meeting browser
+src/config.js         environment, defaults, and config-file path resolution
 src/mcp-client.js     Quill MCP bridge client and ToolResponse parsing
 src/format.js         TOON/JSON/human output shaping, truncation, field selection
 src/tool-router.js    curated command to MCP tool mapping
