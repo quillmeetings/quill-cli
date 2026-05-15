@@ -1,0 +1,8 @@
+.claude/
+.cursorrules
+node_modules/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+code-review-notes.md
+improvement-suggestions.md

@@ -1,0 +1,29 @@
+{
+  "name": "quill-cli",
+  "version": "0.1.0",
+  "description": "Human-friendly and agent-ready CLI for Quill Meetings backed by the Quill MCP server.",
+  "type": "module",
+  "bin": {
+    "quill": "bin/quill.js"
+  },
+  "scripts": {
+    "start": "node bin/quill.js",
+    "check": "node --check bin/quill.js && node --check src/browser.js && node --check src/cli.js && node --check src/config.js && node --check src/format.js && node --check src/mcp-client.js && node --check src/tool-router.js",
+    "smoke": "node bin/quill.js --help"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "quill",
+    "meetings",
+    "mcp",
+    "cli",
+    "axi"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "ink": "^7.0.3",
+    "react": "^19.2.6"
+  }
+}
