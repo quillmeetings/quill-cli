@@ -1,12 +1,12 @@
 export function printData(data, options = {}) {
   data = shapeForOutput(data, options);
-  const format = options.format || "toon";
+  const format = options.format || "human";
   if (format === "json") {
     process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
     return;
   }
 
-  if (options.human) {
+  if (format === "human" || options.human) {
     const rendered = toHuman(data);
     if (rendered) {
       process.stdout.write(`${rendered}\n`);
@@ -28,6 +28,9 @@ export function toHuman(data) {
   const result = data?.result || data;
   if (!result || typeof result !== "object") return null;
 
+  if (result.bin && result.description) return toStatusScreen(result, data.help);
+  if (result.config_path && result.mcp_bridge) return toStatusScreen({ title: "Quill setup", ...result }, data.help);
+
   for (const key of ["meetings", "events", "contacts", "templates", "threads", "notes"]) {
     if (Array.isArray(result[key])) {
       const rows = result[key].map((item) => humanizeRow(item));
@@ -39,6 +42,26 @@ export function toHuman(data) {
 
   if (typeof result.message === "string") return result.message;
   return null;
+}
+
+function toStatusScreen(data, help) {
+  const lines = [
+    `${data.bin || data.title}`,
+  ];
+  if (data.description) lines.push(data.description);
+  const rows = Object.entries(data)
+    .filter(([key]) => !["bin", "title", "description", "next", "help"].includes(key))
+    .map(([key, value]) => [humanLabel(key), formatHumanValue(value)]);
+
+  if (rows.length > 0) {
+    lines.push("");
+    const width = Math.max(...rows.map(([key]) => key.length));
+    lines.push(...rows.map(([key, value]) => `${key.padEnd(width)}  ${value}`));
+  }
+
+  if (data.next) lines.push("", data.next);
+  else if (Array.isArray(help) && help.length > 0) lines.push("", ...help);
+  return lines.join("\n");
 }
 
 export function toToon(value, indent = 0, key = null) {
@@ -158,6 +181,21 @@ function toTable(rows) {
 function truncateCell(value) {
   const text = value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ");
   return text.length > 48 ? `${text.slice(0, 45)}...` : text;
+}
+
+function formatHumanValue(value) {
+  if (value === true) return "yes";
+  if (value === false) return "no";
+  if (Array.isArray(value)) return value.join(", ");
+  if (isObject(value)) return JSON.stringify(value);
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function humanLabel(value) {
+  return String(value)
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .replace(/\bMcp\b/g, "MCP");
 }
 
 function capitalize(value) {

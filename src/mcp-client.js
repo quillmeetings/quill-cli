@@ -5,7 +5,7 @@ const DEFAULT_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 export class McpClient {
   constructor(config) {
     this.config = config;
-    this.maxBufferBytes = Number.parseInt(process.env.QUILL_MCP_MAX_BUFFER_BYTES || String(DEFAULT_MAX_BUFFER_BYTES), 10);
+    this.maxBufferBytes = Number.parseInt(config.max_buffer_bytes || String(DEFAULT_MAX_BUFFER_BYTES), 10);
     this.nextId = 1;
     this.pending = new Map();
     this.buffer = Buffer.alloc(0);
@@ -16,7 +16,7 @@ export class McpClient {
   async connect() {
     this.child = spawn(this.config.command, this.config.args, {
       stdio: ["pipe", "pipe", "pipe"],
-      env: process.env,
+      env: mcpEnvironment(),
     });
 
     this.child.stdout.on("data", (chunk) => this.#onData(chunk));
@@ -56,19 +56,23 @@ export class McpClient {
   }
 
   async callTool(name, args = {}) {
-    return this.request("tools/call", { name, arguments: args });
+    const timeoutMs = name === "create_note"
+      ? Number.parseInt(this.config.mutation_timeout_ms || "120000", 10)
+      : undefined;
+    return this.request("tools/call", { name, arguments: args }, { timeoutMs });
   }
 
-  request(method, params) {
+  request(method, params, options = {}) {
     const id = this.nextId++;
     const message = { jsonrpc: "2.0", id, method, params };
     const promise = new Promise((resolve, reject) => {
+      const timeoutMs = options.timeoutMs || Number.parseInt(this.config.timeout_ms || "15000", 10);
       const timeout = setTimeout(() => {
         this.pending.delete(id);
         const error = new Error(`Timed out waiting for MCP response to ${method}`);
         error.code = "mcp_timeout";
         reject(error);
-      }, Number.parseInt(process.env.QUILL_MCP_TIMEOUT_MS || "15000", 10));
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timeout });
     });
     this.#send(message);
@@ -159,6 +163,13 @@ export class McpClient {
       pending.resolve(message.result);
     }
   }
+}
+
+function mcpEnvironment() {
+  const env = { ...process.env };
+  delete env.QUILL_CONFIG;
+  delete env.QUILL_AGENT_MODE;
+  return env;
 }
 
 export function extractToolResult(result) {

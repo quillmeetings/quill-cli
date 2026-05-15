@@ -2,6 +2,9 @@ import { emitKeypressEvents } from "node:readline";
 import { extractToolResult } from "./mcp-client.js";
 import { buildArgs, findTool } from "./tool-router.js";
 
+const ACTIONS_PROMPT = "Extract action items from this meeting. Return only concrete tasks. For each item include owner if mentioned, due date if mentioned, status or uncertainty, and brief source context. If there are no clear action items, say so explicitly.";
+const FOLLOWUP_PROMPT = "Draft a concise follow-up note for this meeting. Include a short recap, decisions, open questions, action items, and a friendly next-step section. Keep it practical and ready to send.";
+
 export function runMeetingBrowser(client, tools, meetings, options, pickerOptions = {}, helpers = {}) {
   return new Promise((resolve) => {
     const initialMeetings = meetings;
@@ -12,6 +15,7 @@ export function runMeetingBrowser(client, tools, meetings, options, pickerOption
     let mode = "list";
     let showHelp = false;
     let panel = null;
+    let pendingAction = null;
     let filtered = currentMeetings;
     let searching = false;
     let searchError = "";
@@ -84,11 +88,8 @@ export function runMeetingBrowser(client, tools, meetings, options, pickerOption
       mode = "panel";
       render();
 
-      const route = action === "notes" ? "getNotes" : action === "transcript" ? "getTranscript" : "getMeeting";
       try {
-        const tool = findTool(tools, route);
-        if (!tool) throw browserError("tool_route_unavailable", `Could not find a Quill MCP tool for ${route}`);
-        const args = buildArgs(tool, { id: meeting.id });
+        const { tool, args } = buildPanelCall(tools, action, meeting);
         const result = extractToolResult(await client.callTool(tool.name, args));
         panel = {
           title: `${actionLabel(action)}: ${meeting.title || "(untitled)"}`,
@@ -106,12 +107,24 @@ export function runMeetingBrowser(client, tools, meetings, options, pickerOption
     const render = () => {
       process.stdout.write("\x1b[?25l\x1b[2J\x1b[H");
       process.stdout.write("Quill meetings\n");
+      if (mode === "confirm") {
+        const meeting = filtered[selected];
+        process.stdout.write("y=create  n/b/Esc=cancel  ? help  q=quit\n\n");
+        if (showHelp) renderHelp();
+        process.stdout.write(`${actionLabel(pendingAction)}\n`);
+        process.stdout.write(`${"-".repeat(actionLabel(pendingAction).length)}\n`);
+        process.stdout.write(`Create a generated ${actionLabel(pendingAction).toLowerCase()} note for:\n`);
+        process.stdout.write(`${meeting?.title || "(untitled)"}\n\n`);
+        process.stdout.write("This will add a new note to the meeting in Quill.\n");
+        return;
+      }
+
       if (mode === "panel") {
-        process.stdout.write("b/Esc=list  n=notes  t=transcript  Enter=view  ? help  q=quit\n\n");
+        process.stdout.write("b/Esc=list  n=notes  t=transcript  a=actions  f=follow-up  Enter=view  ? help  q=quit\n\n");
         if (showHelp) renderHelp();
         process.stdout.write(`${panel?.title || "Meeting"}\n`);
         process.stdout.write(`${"-".repeat(Math.min((panel?.title || "Meeting").length, 80))}\n`);
-        process.stdout.write(`${truncatePanel(panel?.body || "")}\n`);
+        process.stdout.write(`${truncatePanel(panel?.body || "", options.browsePanelTruncate)}\n`);
         return;
       }
 
@@ -119,7 +132,7 @@ export function runMeetingBrowser(client, tools, meetings, options, pickerOption
         process.stdout.write("type=filter live  Enter=server search  Esc=cancel\n");
         process.stdout.write(`search: ${query}█\n`);
       } else {
-        process.stdout.write("Enter=view  n=notes  t=transcript  /=search  ? help  q=quit\n");
+        process.stdout.write("Enter=view  n=notes  t=transcript  a=actions  f=follow-up  /=search  ? help  q=quit\n");
         if (searching) process.stdout.write("\n");
         else if (serverQuery) process.stdout.write(`server results for "${serverQuery}"  (Esc to clear)\n`);
         else process.stdout.write("\n");
@@ -156,6 +169,9 @@ export function runMeetingBrowser(client, tools, meetings, options, pickerOption
       process.stdout.write("  Enter          View selected meeting without leaving browse\n");
       process.stdout.write("  n              Open notes/minutes\n");
       process.stdout.write("  t              Open transcript\n");
+      process.stdout.write("  a              Generate action-item note after confirmation\n");
+      process.stdout.write("  f              Generate follow-up note after confirmation\n");
+      process.stdout.write("  y              Confirm note generation\n");
       process.stdout.write("  b              Back to list from a detail panel\n");
       process.stdout.write("  /              Search (live filter while typing, Enter fetches from server)\n");
       process.stdout.write("  Esc            Clear search/help/panel, then quit\n");
@@ -209,9 +225,32 @@ export function runMeetingBrowser(client, tools, meetings, options, pickerOption
         } else if (str === "t") {
           loadPanel("transcript");
           return;
+        } else if (str === "a") {
+          confirmMutation("actions");
+          return;
+        } else if (str === "f") {
+          confirmMutation("followup");
+          return;
         } else if (key.name === "return" || str === "\r") {
           loadPanel("view");
           return;
+        }
+        render();
+        return;
+      }
+
+      if (mode === "confirm") {
+        if (str === "q") return finish(null);
+        if (str === "?") showHelp = !showHelp;
+        else if (str === "y") {
+          const action = pendingAction;
+          pendingAction = null;
+          loadPanel(action);
+          return;
+        } else if (str === "n" || str === "b" || key.name === "escape") {
+          pendingAction = null;
+          mode = panel ? "panel" : "list";
+          showHelp = false;
         }
         render();
         return;
@@ -247,7 +286,20 @@ export function runMeetingBrowser(client, tools, meetings, options, pickerOption
       } else if (str === "t" && filtered[selected]) {
         loadPanel("transcript");
         return;
+      } else if (str === "a" && filtered[selected]) {
+        confirmMutation("actions");
+        return;
+      } else if (str === "f" && filtered[selected]) {
+        confirmMutation("followup");
+        return;
       }
+      render();
+    };
+
+    const confirmMutation = (action) => {
+      pendingAction = action;
+      mode = "confirm";
+      showHelp = false;
       render();
     };
 
@@ -259,6 +311,8 @@ export function runMeetingBrowser(client, tools, meetings, options, pickerOption
 function actionLabel(action) {
   if (action === "notes") return "Notes";
   if (action === "transcript") return "Transcript";
+  if (action === "actions") return "Action items";
+  if (action === "followup") return "Follow-up";
   return "Meeting";
 }
 
@@ -266,7 +320,27 @@ function formatBrowsePanel(action, meeting, result) {
   if (action === "view") return formatMeetingPanel(result, meeting);
   if (action === "notes") return formatTextPanel(result, "No notes found for this meeting.");
   if (action === "transcript") return formatTextPanel(result, "No transcript found for this meeting.");
+  if (action === "actions") return formatTextPanel(result, "Action-item note generation completed.");
+  if (action === "followup") return formatTextPanel(result, "Follow-up note generation completed.");
   return formatTextPanel(result, "");
+}
+
+function buildPanelCall(tools, action, meeting) {
+  const route = action === "notes"
+    ? "getNotes"
+    : action === "transcript"
+      ? "getTranscript"
+      : action === "actions" || action === "followup"
+        ? "createNote"
+        : "getMeeting";
+  const tool = findTool(tools, route);
+  if (!tool) throw browserError("tool_route_unavailable", `Could not find a Quill MCP tool for ${route}`);
+  const values = action === "actions"
+    ? { meetingId: meeting.id, prompt: ACTIONS_PROMPT }
+    : action === "followup"
+      ? { meetingId: meeting.id, prompt: FOLLOWUP_PROMPT }
+      : { id: meeting.id };
+  return { tool, args: buildArgs(tool, values) };
 }
 
 function formatMeetingPanel(result, fallbackMeeting) {

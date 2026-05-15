@@ -1,12 +1,16 @@
 import { existsSync } from "node:fs";
 import { runMeetingBrowser } from "./browser.js";
-import { defaultConfig, configPath } from "./config.js";
+import { configPath, defaultBridgePath, ensureConfigFile, getConfigValue, loadConfig, readUserConfig, setConfigValue, writeUserConfig } from "./config.js";
 import { extractToolResult, McpClient } from "./mcp-client.js";
 import { printData, structuredError, truncateText, withHelp } from "./format.js";
 import { buildArgs, findTool } from "./tool-router.js";
 
+const ACTIONS_PROMPT = "Extract action items from this meeting. Return only concrete tasks. For each item include owner if mentioned, due date if mentioned, status or uncertainty, and brief source context. If there are no clear action items, say so explicitly.";
+const FOLLOWUP_PROMPT = "Draft a concise follow-up note for this meeting. Include a short recap, decisions, open questions, action items, and a friendly next-step section. Keep it practical and ready to send.";
+
 export async function runCli(argv) {
-  const options = parseGlobalOptions(argv);
+  const config = loadConfig();
+  const options = parseGlobalOptions(argv, config);
   const args = normalizeCommandArgs(options.args);
   const command = args[0];
 
@@ -25,19 +29,24 @@ export async function runCli(argv) {
     return;
   }
 
+  if (command === "init") {
+    await runInit(options, config);
+    return;
+  }
+
   if (!command) {
-    await runHome(options);
+    await runHome(options, config);
     return;
   }
 
   if (command === "config") {
-    printData({ config_path: configPath(), config: defaultConfig() }, options);
+    await runConfig(args.slice(1), options, config);
     return;
   }
 
   validateBeforeMcp(args, options);
 
-  const client = new McpClient(defaultConfig().mcp);
+  const client = new McpClient(config.mcp);
   await client.connect();
   try {
     if (command === "mcp") {
@@ -51,8 +60,8 @@ export async function runCli(argv) {
   }
 }
 
-async function runHome(options) {
-  const bridge = defaultConfig().mcp.args[0];
+async function runHome(options, config) {
+  const bridge = config.mcp.args[0];
   printData(withHelp({
     bin: "quill",
     description: "Browse and search Quill Meetings through the local Quill MCP server",
@@ -62,6 +71,80 @@ async function runHome(options) {
     "Run `quill mcp tools` to inspect available Quill MCP tools",
     "Run `quill meetings list --limit 10` to list recent meetings",
     "Run `quill search \"<query>\"` to search meeting content",
+  ]), options);
+}
+
+async function runConfig(args, options, config) {
+  const command = args[0] || "show";
+  if (command === "path") {
+    printData({ config_path: configPath() }, options);
+    return;
+  }
+  if (command === "init") {
+    const result = ensureConfigFile();
+    printData({
+      config_path: result.path,
+      created: result.created,
+    }, options);
+    return;
+  }
+  if (command === "show") {
+    printData({
+      config_path: configPath(),
+      config,
+    }, options);
+    return;
+  }
+  if (command === "get") {
+    const key = args[1];
+    if (!key) throw cliError("missing_config_key", "Usage: quill config get <key>");
+    printData({
+      key,
+      value: getConfigValue(config, key),
+    }, options);
+    return;
+  }
+  if (command === "set") {
+    const key = args[1];
+    const value = args.slice(2).join(" ");
+    if (!key || value === "") throw cliError("missing_config_set_args", "Usage: quill config set <key> <value>");
+    const userConfig = readUserConfig();
+    setConfigValue(userConfig, key, value);
+    writeUserConfig(userConfig);
+    printData({
+      config_path: configPath(),
+      key,
+      value: getConfigValue(loadConfig(), key),
+    }, options);
+    return;
+  }
+  throw cliError("unknown_config_command", `Unknown config command: ${command}`);
+}
+
+async function runInit(options, config) {
+  const result = ensureConfigFile();
+  const bridge = config.mcp.args[0] || defaultBridgePath();
+  const bridgeFound = existsSync(bridge);
+  const setup = {
+    config_path: result.path,
+    config_created: result.created,
+    platform: process.platform,
+    mcp_bridge: bridge,
+    mcp_bridge_found: bridgeFound,
+    next: bridgeFound
+      ? "Run `quill mcp tools` to verify MCP, then `quill browse`."
+      : "Install Quill or run `quill config set mcp.args '[\"/path/to/mcp-stdio-bridge.js\"]'`.",
+  };
+
+  if (!bridgeFound) {
+    printData(structuredError("mcp_bridge_not_found", "Quill MCP bridge was not found.", setup), options);
+    process.exitCode = 1;
+    return;
+  }
+
+  printData(withHelp(setup, [
+    "Run `quill mcp tools` to verify MCP",
+    "Run `quill browse` to open the meeting picker",
   ]), options);
 }
 
@@ -112,7 +195,7 @@ async function runCurated(client, args, options) {
 
   if (domain === "browse" || ((domain === "meetings" || domain === "meeting") && actionOrValue === "browse")) {
     await browseMeetings(client, tools, options, {
-      limit: flags.limit || options.limit,
+      limit: flags.limit || browseDefaultLimit(options),
       since: flags.since,
       until: flags.until,
       today: flags.today,
@@ -164,6 +247,41 @@ async function runCurated(client, args, options) {
       "Run `quill transcript <id> --full`",
       "Run `quill search \"<query>\"`",
     ]);
+    return;
+  }
+
+  if (domain === "note") {
+    if (actionOrValue === "create") {
+      const id = await resolveMeetingId(client, tools, maybeValue, options);
+      await createGeneratedNote(client, tools, {
+        meetingId: id,
+        prompt: flags.prompt || parseFlags(args.slice(3)).positionals.join(" "),
+        instruction: flags.instruction,
+        templateId: flags.template,
+        includePrivateNotes: parseOptionalBoolean(flags.includePrivateNotes),
+        data: flags.data,
+      }, options);
+      return;
+    }
+  }
+
+  if (domain === "actions" || domain === "action-items") {
+    const id = await resolveMeetingId(client, tools, actionOrValue, options);
+    await createGeneratedNote(client, tools, {
+      meetingId: id,
+      prompt: ACTIONS_PROMPT,
+      instruction: flags.instruction,
+    }, options);
+    return;
+  }
+
+  if (domain === "followup" || domain === "follow-up") {
+    const id = await resolveMeetingId(client, tools, actionOrValue, options);
+    await createGeneratedNote(client, tools, {
+      meetingId: id,
+      prompt: FOLLOWUP_PROMPT,
+      instruction: flags.instruction,
+    }, options);
     return;
   }
 
@@ -283,6 +401,22 @@ async function callRoute(client, tools, route, values, options, help) {
   printData(withHelp({ tool: tool.name, result }, help), options);
 }
 
+async function createGeneratedNote(client, tools, values, options) {
+  if (!values.prompt && !values.templateId) {
+    throw cliError("missing_prompt", "Provide --prompt, a prompt argument, or --template.");
+  }
+  const tool = findTool(tools, "createNote");
+  if (!tool) throw cliError("tool_route_unavailable", "Could not find Quill MCP create_note tool.");
+  const result = extractToolResult(await client.callTool(tool.name, buildArgs(tool, values)));
+  printData(withHelp({
+    tool: tool.name,
+    result,
+  }, [
+    "Run `quill notes <id>` to read notes for this meeting",
+    "Run `quill browse` to continue from the meeting picker",
+  ]), options);
+}
+
 function addPagination(result, values) {
   if (!result || typeof result !== "object") return;
   const limit = Number.parseInt(values.limit, 10);
@@ -397,14 +531,18 @@ function startOfDay(offsetDays) {
   return date.toISOString();
 }
 
-function parseGlobalOptions(argv) {
+function parseGlobalOptions(argv, config) {
   const args = [];
   const options = {
-    format: "toon",
-    limit: defaultConfig().output.limit,
+    format: config.output.format || "human",
+    limit: config.output.limit || 20,
+    truncate: config.output.truncate || 1200,
+    browseLimit: config.browse?.limit || config.output.limit || 20,
+    browsePanelTruncate: config.browse?.panel_truncate || 5000,
+    limitExplicit: false,
     help: false,
     version: false,
-    agent: process.env.QUILL_AGENT_MODE === "1",
+    agent: Boolean(config.agent?.enabled) || process.env.QUILL_AGENT_MODE === "1",
   };
 
   for (let index = 0; index < argv.length; index++) {
@@ -416,20 +554,27 @@ function parseGlobalOptions(argv) {
       options.agent = true;
     }
     else if (arg === "--agent") options.agent = true;
+    else if (arg === "--no-agent") options.agent = false;
     else if (arg === "--human" || arg === "--table") options.forceHuman = true;
     else if (arg === "--full") options.full = true;
     else if (arg === "--fields") options.fields = splitCsv(argv[++index] || "");
     else if (arg === "--truncate") options.truncate = Number.parseInt(argv[++index] || "1200", 10);
     else if (arg === "--format" || arg === "-o") {
-      options.format = argv[++index] || "toon";
+      options.format = argv[++index] || "human";
       if (options.format === "json") options.agent = true;
     }
-    else if (arg === "--limit" || arg === "-l") options.limit = Number.parseInt(argv[++index] || "20", 10);
+    else if (arg === "--limit" || arg === "-l") {
+      options.limit = Number.parseInt(argv[++index] || "20", 10);
+      options.limitExplicit = true;
+    }
     else args.push(arg);
   }
 
+  if (options.format === "json") options.agent = true;
+  if (options.forceHuman) options.format = "human";
+  if (options.agent && options.format === "human" && !options.forceHuman) options.format = "toon";
   options.args = args;
-  options.human = !options.agent && options.format !== "json" && (process.stdout.isTTY || options.forceHuman);
+  options.human = !options.agent && options.format === "human";
   return options;
 }
 
@@ -459,6 +604,10 @@ function parseFlags(args) {
   return { flags, positionals };
 }
 
+function browseDefaultLimit(options) {
+  return options.limitExplicit ? options.limit : options.browseLimit || options.limit;
+}
+
 function readOption(args, name) {
   const index = args.indexOf(name);
   return index === -1 ? undefined : args[index + 1];
@@ -477,6 +626,7 @@ function printHelp(topic) {
 
 Usage:
   quill
+  quill init
   quill meetings list [--limit 20] [--since 7d] [--search text]
   quill browse [--limit 20] [--search text]
   quill meetings browse [--limit 20] [--search text]
@@ -486,36 +636,37 @@ Usage:
   quill <id>
   quill notes <id>
   quill summarize <id>
+  quill note create <id> --prompt "..."
+  quill actions <id>
+  quill followup <id>
   quill transcript <id> [--full]
   quill search "<query>" [--limit 20] [--since "last week"] [--today]
   quill contacts list [--search text]
   quill threads list [--include-meetings]
   quill events list [--limit 20]
   quill templates list [--kind minutes]
+  quill config show|get|set|init|path
   quill mcp tools
   quill mcp schema <tool>
   quill mcp call <tool> --input '{"key":"value"}'
   quill completion zsh|bash|fish
 
 Global options:
-  --json                  Print JSON instead of TOON-style output
+  --json                  Print JSON instead of human output
   --agent                 Disable interactive prompts and human formatting
+  --no-agent              Override agent.enabled from config for one command
   --human, --table        Force human table output when not using --json
   --fields <a,b,c>        Select list fields
   --full                  Disable large text truncation
   --truncate <chars>      Large text truncation limit
-  -o, --format <format>   Output format: toon or json
+  -o, --format <format>   Output format: human, toon, or json
   -l, --limit <n>         Default result limit
   -h, --help              Show help
   -v, --version           Show version
 
 Environment:
-  QUILL_MCP_BRIDGE        Path to Quill mcp-stdio-bridge.js
-  QUILL_MCP_COMMAND       MCP command, defaults to node
-  QUILL_MCP_ARGS          MCP args, overrides bridge path
+  QUILL_CONFIG            Config file path, defaults to ~/.config/quill-cli/config.json
   QUILL_AGENT_MODE=1      Agent mode by default
-  QUILL_MCP_MAX_BUFFER_BYTES
-                          Maximum MCP response buffer, default 10485760
   QUILL_DEBUG=1           Forward MCP stderr
 `);
 }
@@ -531,11 +682,18 @@ Hints:
   Use \`quill browse\` to avoid copying meeting UUIDs.
   Use \`--json\` for agent/script output.
 `,
+    init: `Usage:
+  quill init
+
+Notes:
+  Writes the default JSON config if it does not exist, checks the platform-specific Quill MCP bridge path, and prints the next setup command.
+`,
     browse: `Usage:
   quill browse [--limit 20] [--search text] [--since 7d]
 
 Keys:
-  Enter=view, n=notes, t=transcript, b=back, /=filter, ?=help, q=quit
+  Enter=view, n=notes, t=transcript, a=actions, f=follow-up
+  y=confirm note generation, b=back, /=search, ?=help, q=quit
 
 Agent mode:
   Browse is interactive and disabled with \`--json\`, \`--agent\`, or QUILL_AGENT_MODE=1.
@@ -546,6 +704,27 @@ Agent mode:
 
 Notes:
   Without an id in a TTY, opens the meeting picker.
+`,
+    note: `Usage:
+  quill note create <id> --prompt "Generate a customer-ready recap"
+  quill note create <id> "Summarize risks and blockers"
+  quill note create <id> --template <template-id> [--instruction "..."]
+
+Notes:
+  Creates a generated Quill note attached to the meeting.
+`,
+    actions: `Usage:
+  quill actions <id> [--instruction "..."]
+  quill action-items <id>
+
+Notes:
+  Creates a generated action-item note attached to the meeting.
+`,
+    followup: `Usage:
+  quill followup <id> [--instruction "..."]
+
+Notes:
+  Creates a generated follow-up note attached to the meeting.
 `,
     transcript: `Usage:
   quill transcript <id> [--full]
@@ -561,6 +740,17 @@ Notes:
   quill mcp tools
   quill mcp schema <tool>
   quill mcp call <tool> --input '{"key":"value"}'
+`,
+    config: `Usage:
+  quill config path
+  quill config init
+  quill config show
+  quill config get <key>
+  quill config set <key> <value>
+
+Examples:
+  quill config set mcp.mutation_timeout_ms 180000
+  quill config set mcp.args '["/path/to/mcp-stdio-bridge.js"]'
 `,
   };
   return help[topic];
@@ -584,6 +774,12 @@ function validateBeforeMcp(args, options) {
   if (domain === "notes" || domain === "summary" || domain === "summarize" || domain === "transcript") {
     if (!actionOrValue) throw cliError("missing_meeting_id", `Missing meeting id. Usage: quill ${domain} <id>.`);
   }
+  if (domain === "actions" || domain === "action-items" || domain === "followup" || domain === "follow-up") {
+    if (!actionOrValue) throw cliError("missing_meeting_id", `Missing meeting id. Usage: quill ${domain} <id>.`);
+  }
+  if (domain === "note" && actionOrValue === "create" && !maybeValue) {
+    throw cliError("missing_meeting_id", "Missing meeting id. Usage: quill note create <id> --prompt \"...\".");
+  }
   if ((domain === "meetings" || domain === "meeting") && actionOrValue === "view" && !maybeValue) {
     throw cliError("missing_meeting_id", "Missing meeting id. Usage: quill meetings view <id>.");
   }
@@ -594,7 +790,7 @@ function looksLikeId(value) {
 }
 
 function printCompletion(shell) {
-  const commands = "browse meetings meeting ls v view notes n transcript t search contacts threads events templates mcp config completion help";
+  const commands = "browse meetings meeting ls v view notes note n actions action-items followup follow-up transcript t search contacts threads events templates mcp config completion help";
   if (shell === "bash") {
     process.stdout.write(`_quill_complete(){ COMPREPLY=( $(compgen -W "${commands}" -- "\${COMP_WORDS[COMP_CWORD]}") ); }\ncomplete -F _quill_complete quill\n`);
     return;
@@ -615,4 +811,11 @@ function cliError(code, message) {
 
 function splitCsv(value) {
   return value.split(",").map((field) => field.trim()).filter(Boolean);
+}
+
+function parseOptionalBoolean(value) {
+  if (value === undefined) return undefined;
+  if (value === true || value === "true") return true;
+  if (value === false || value === "false") return false;
+  return Boolean(value);
 }

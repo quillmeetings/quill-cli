@@ -24,16 +24,24 @@ node bin/quill.js --help
 
 ## Prerequisite: Quill MCP Bridge
 
-The CLI talks to Quill through a local MCP bridge that ships with the Quill desktop app. On macOS the bridge lives at:
+The CLI talks to Quill through a local MCP bridge that ships with the Quill desktop app. The default bridge path is platform-aware:
 
 ```text
-~/Library/Application Support/Quill/mcp-stdio-bridge.js
+macOS:   ~/Library/Application Support/Quill/mcp-stdio-bridge.js
+Windows: %APPDATA%\Quill\mcp-stdio-bridge.js
+Linux:   ~/.local/share/Quill/mcp-stdio-bridge.js
+```
+
+The CLI uses built-in defaults and does not need a config file for the happy path. To write the default config and check the bridge path:
+
+```bash
+quill init
 ```
 
 If your bridge is elsewhere, point the CLI at it:
 
 ```bash
-export QUILL_MCP_BRIDGE="/path/to/mcp-stdio-bridge.js"
+quill config set mcp.args '["/path/to/mcp-stdio-bridge.js"]'
 ```
 
 The equivalent MCP client config looks like:
@@ -52,6 +60,7 @@ The equivalent MCP client config looks like:
 Start with the interactive picker:
 
 ```bash
+quill init
 quill browse
 quill meetings browse --limit 20
 quill meetings browse --search "roadmap"
@@ -65,19 +74,25 @@ From the list
   Enter           View selected meeting
   n               Open notes/minutes
   t               Open transcript
+  a               Generate action-item note after confirmation
+  f               Generate follow-up note after confirmation
+  y               Confirm note generation
   /               Search (live filter while typing, Enter fetches from server)
   ?               Toggle help
   q or Esc        Quit (Esc first clears active search/filter)
 
-From a detail panel (view, notes, or transcript)
+From a detail panel
   b or Esc        Back to the list
   n               Switch to notes
   t               Switch to transcript
+  a               Generate action-item note after confirmation
+  f               Generate follow-up note after confirmation
+  y               Confirm note generation
   Enter           Re-open the meeting view
   q               Quit
 ```
 
-Browse renders meeting details, notes, and transcripts as readable panels. This is intentionally separate from the compact TOON/JSON output used by normal commands and agents.
+Browse renders meeting details, notes, and transcripts as readable panels. This is intentionally separate from normal command output, which defaults to human tables and supports compact TOON/JSON for agents.
 
 Commands that need a meeting ID also open the picker in a real terminal:
 
@@ -104,6 +119,9 @@ quill meetings list --today
 quill meetings view <id>
 quill notes <id>
 quill summarize <id>
+quill note create <id> --prompt "Summarize risks and blockers"
+quill actions <id>
+quill followup <id>
 quill transcript <id>
 quill search "roadmap risk" --since "last week"
 quill contacts list --search "Jane"
@@ -125,7 +143,7 @@ quill notes <id> --json
 Enable it globally:
 
 ```bash
-export QUILL_AGENT_MODE=1
+quill config set agent.enabled true
 ```
 
 Global flags:
@@ -133,11 +151,12 @@ Global flags:
 ```bash
 --json                  Print structured JSON and enable agent mode
 --agent                 Disable interactive prompts and human formatting
+--no-agent              Override agent.enabled from config for one command
 --human, --table        Force human table output when not using --json
 --fields <a,b,c>        Select list fields
 --full                  Disable large text truncation
 --truncate <chars>      Large text truncation limit
--o, --format <fmt>      Select output format: toon or json
+-o, --format <fmt>      Select output format: human, toon, or json
 -l, --limit <n>         Default result limit
 -h, --help              Show help
 -v, --version           Show version
@@ -156,9 +175,26 @@ Interactive browsing is disabled in agent mode. `quill browse --json` returns a 
 
 ## Output
 
-Default output is TOON: a compact, YAML-like format that's cheap to scan and cheap on LLM context. Use `--json` for machine consumers, `--human` or `--table` for a wider terminal view.
+Default output is human-readable. Lists render as tables in normal CLI use. Use `--format toon` for compact, YAML-like output that's cheap on LLM context, or `--json` for machine consumers.
 
-Default compact output:
+Default human output:
+
+```text
+Meetings (1)
+id                                    title    date        duration
+------------------------------------  -------  ----------  --------
+36dc4314-b6dc-4950-88ee-1b33556a6578  jtbd II  2 days ago  92min
+
+Run `quill meetings view <id>`
+Run `quill transcript <id> --full`
+Run `quill search "<query>"`
+```
+
+Compact TOON output:
+
+```bash
+quill meetings list --limit 1 --format toon
+```
 
 ```text
 tool: search_meetings
@@ -191,6 +227,35 @@ Get concise help for a specific command:
 quill meetings --help
 quill browse --help
 quill transcript --help
+```
+
+## Config
+
+Persistent settings live in JSON:
+
+```text
+~/.config/quill-cli/config.json
+```
+
+Use `QUILL_CONFIG=/path/to/config.json` to point the CLI at a different config file for tests or one-off runs.
+
+```bash
+quill config path
+quill config init
+quill config show
+quill config get mcp.mutation_timeout_ms
+quill config set mcp.mutation_timeout_ms 180000
+quill config set mcp.args '["/path/to/mcp-stdio-bridge.js"]'
+```
+
+`quill init` is the guided setup command. It creates the config only if it is missing, checks the expected bridge path, and prints the next useful command.
+
+The only Quill-specific environment overrides are:
+
+```bash
+QUILL_CONFIG=/path/to/config.json
+QUILL_AGENT_MODE=1
+QUILL_DEBUG=1
 ```
 
 ## Raw MCP Access
@@ -235,8 +300,9 @@ Useful debug commands:
 
 ```bash
 QUILL_DEBUG=1 node bin/quill.js mcp tools
-QUILL_MCP_TIMEOUT_MS=30000 node bin/quill.js meetings list --limit 5
-QUILL_MCP_MAX_BUFFER_BYTES=20971520 node bin/quill.js transcript <id> --full
+node bin/quill.js config set mcp.timeout_ms 30000
+node bin/quill.js config set mcp.mutation_timeout_ms 180000
+node bin/quill.js config set mcp.max_buffer_bytes 20971520
 node bin/quill.js mcp schema search_meetings --json
 ```
 
@@ -246,7 +312,7 @@ Code layout:
 bin/quill.js          CLI entrypoint and top-level error handling
 src/cli.js            command parsing, routing, help, and MCP command wiring
 src/browser.js        interactive meeting browser
-src/config.js         environment, defaults, and config-file path resolution
+src/config.js         JSON config defaults, path resolution, get/set helpers
 src/mcp-client.js     Quill MCP bridge client and ToolResponse parsing
 src/format.js         TOON/JSON/human output shaping, truncation, field selection
 src/tool-router.js    curated command to MCP tool mapping
@@ -256,4 +322,4 @@ Implementation notes:
 
 - Quill's bridge currently returns newline-delimited JSON-RPC, not standard `Content-Length` stdio framing.
 - Quill tool results often contain XML-like `ToolResponse` text. The CLI parses the known Quill response shapes for compact display and keeps raw MCP access available for debugging.
-- MCP stdout buffers are capped by `QUILL_MCP_MAX_BUFFER_BYTES` to avoid unbounded memory growth on malformed or very large responses.
+- MCP stdout buffers are capped by `mcp.max_buffer_bytes` to avoid unbounded memory growth on malformed or very large responses.

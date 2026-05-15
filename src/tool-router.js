@@ -41,6 +41,7 @@ const ROUTES = {
   getEvent: ["get_event", "event_get"],
   listTemplates: ["list_templates", "templates_list"],
   getTemplate: ["get_template", "template_get"],
+  createNote: ["create_note", "note_create", "create_meeting_note"],
 };
 
 export function findTool(tools, routeName) {
@@ -88,6 +89,12 @@ function pickProperty(properties, key) {
     meetingsLimit: ["meetings_limit", "meetingsLimit"],
     kind: ["kind", "type"],
     includeDisabled: ["include_disabled", "includeDisabled"],
+    meetingId: ["meeting_id", "meetingId", "id"],
+    prompt: ["prompt"],
+    instruction: ["instruction"],
+    templateId: ["template_id", "templateId"],
+    includePrivateNotes: ["include_private_notes", "includePrivateNotes"],
+    data: ["data"],
   };
   return aliases[key]?.find((alias) => Object.hasOwn(properties, alias));
 }
