@@ -83,6 +83,8 @@ From the list
 
 From a detail panel
   b or Esc        Back to the list
+  up/down, j/k    Scroll the panel one line
+  PgUp/PgDn       Scroll the panel eight lines
   c               Copy the current panel content to clipboard
   n               Switch to notes
   t               Switch to transcript
@@ -90,6 +92,7 @@ From a detail panel
   f               Generate follow-up note after confirmation
   y               Confirm note generation
   Enter           Re-open the meeting view
+  ?               Toggle help
   q               Quit
 ```
 
@@ -121,8 +124,10 @@ quill meetings view <id>
 quill notes <id>
 quill summarize <id>
 quill note create <id> --prompt "Summarize risks and blockers"
-quill actions <id>
-quill followup <id>
+quill note create <id> "Summarize risks and blockers"            # positional prompt
+quill note create <id> --template <template-id> --instruction "Focus on next steps"
+quill actions <id> --instruction "Group by owner"
+quill followup <id> --instruction "Tone: friendly, ready to send"
 quill transcript <id>
 quill search "roadmap risk" --since "last week"
 quill contacts list --search "Jane"
@@ -133,12 +138,14 @@ quill templates list --kind minutes
 
 ## Agent Mode
 
-Agent mode disables interactive prompts and keeps output machine-oriented.
+Agent mode disables interactive prompts and keeps output machine-oriented. Without `--json` or `--human`, agent mode defaults to compact TOON output.
 
 ```bash
 quill meetings list --json
 quill search "pricing" --json
 quill notes <id> --json
+quill meetings list --agent                # TOON by default
+quill meetings list --agent --human        # force human tables in agent mode
 ```
 
 Enable it globally:
