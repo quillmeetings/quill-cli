@@ -29,7 +29,6 @@ The CLI talks to Quill through a local MCP bridge that ships with the Quill desk
 ```text
 macOS:   ~/Library/Application Support/Quill/mcp-stdio-bridge.js
 Windows: %APPDATA%\Quill\mcp-stdio-bridge.js
-Linux:   ~/.local/share/Quill/mcp-stdio-bridge.js
 ```
 
 The CLI uses built-in defaults and does not need a config file for the happy path. To write the default config and check the bridge path:
