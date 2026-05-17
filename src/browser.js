@@ -145,94 +145,104 @@ function MeetingBrowser({ client, tools, meetings, options, pickerOptions, helpe
     }
   };
 
+  const exitPanel = () => {
+    setMode("list");
+    setShowHelp(false);
+    setPanel(null);
+    setPanelScroll(0);
+    setCopyStatus("");
+  };
+
+  const exitConfirm = () => {
+    setPendingAction(null);
+    setMode(panel ? "panel" : "list");
+    setShowHelp(false);
+  };
+
+  const exitFilter = () => {
+    setQuery("");
+    setMode("list");
+  };
+
+  const clearServerSearch = () => {
+    setCurrentMeetings(initialMeetings.current);
+    setServerQuery("");
+    setSelected(0);
+  };
+
   useInput((input, key = {}) => {
     if (key.ctrl && input === "c") return finish(null);
     if (searching) return;
 
     if (mode === "filter") {
+      if (key.escape) return exitFilter();
       if (key.return) {
         setMode("list");
         const trimmed = query.trim();
         if (!trimmed) {
-          if (serverQuery) {
-            setCurrentMeetings(initialMeetings.current);
-            setServerQuery("");
-            setSelected(0);
-          }
+          if (serverQuery) clearServerSearch();
           return;
         }
-        runServerSearch(trimmed);
-        return;
+        return runServerSearch(trimmed);
       }
-      if (key.escape) {
-        setMode("list");
-        return;
-      }
-      if (key.backspace || key.delete) setQuery((value) => value.slice(0, -1));
-      else if (input && !key.ctrl && !key.meta && input >= " ") setQuery((value) => value + input);
+      if (key.backspace || key.delete) return setQuery((value) => value.slice(0, -1));
+      if (input && !key.ctrl && !key.meta && input >= " ") return setQuery((value) => value + input);
       return;
     }
 
     if (mode === "panel") {
+      if (key.escape || input === "b") return exitPanel();
       if (input === "q") return finish(null);
-      if (input === "?") setShowHelp((value) => !value);
-      else if (input === "b" || key.escape) {
-        setMode("list");
-        setShowHelp(false);
-        setPanel(null);
-        setPanelScroll(0);
-        setCopyStatus("");
-      } else if (input === "c") copyPanel();
-      else if (input === "n") loadPanel("notes");
-      else if (input === "t") loadPanel("transcript");
-      else if (input === "a") confirmMutation("actions");
-      else if (input === "f") confirmMutation("followup");
-      else if (key.return) loadPanel("view");
-      else if (isDownKey(input, key)) setPanelScroll((value) => value + 1);
-      else if (isUpKey(input, key)) setPanelScroll((value) => Math.max(value - 1, 0));
-      else if (isPageDownKey(key)) setPanelScroll((value) => value + 8);
-      else if (isPageUpKey(key)) setPanelScroll((value) => Math.max(value - 8, 0));
+      if (input === "?") return setShowHelp((value) => !value);
+      if (input === "c") return copyPanel();
+      if (input === "n") return loadPanel("notes");
+      if (input === "t") return loadPanel("transcript");
+      if (input === "a") return confirmMutation("actions");
+      if (input === "f") return confirmMutation("followup");
+      if (key.return) return loadPanel("view");
+      if (isDownKey(input, key)) return setPanelScroll((value) => value + 1);
+      if (isUpKey(input, key)) return setPanelScroll((value) => Math.max(value - 1, 0));
+      if (isPageDownKey(key)) return setPanelScroll((value) => value + 8);
+      if (isPageUpKey(key)) return setPanelScroll((value) => Math.max(value - 8, 0));
       return;
     }
 
     if (mode === "confirm") {
+      if (key.escape || input === "n" || input === "b") return exitConfirm();
       if (input === "q") return finish(null);
-      if (input === "?") setShowHelp((value) => !value);
-      else if (input === "y") {
+      if (input === "?") return setShowHelp((value) => !value);
+      if (input === "y") {
         const action = pendingAction;
         setPendingAction(null);
-        loadPanel(action);
-      } else if (input === "n" || input === "b" || key.escape) {
-        setPendingAction(null);
-        setMode(panel ? "panel" : "list");
-        setShowHelp(false);
+        return loadPanel(action);
       }
       return;
     }
 
-    if (isDownKey(input, key)) setSelected((value) => Math.min(value + 1, filtered.length - 1));
-    else if (isUpKey(input, key)) setSelected((value) => Math.max(value - 1, 0));
-    else if (input === "/") {
+    // List mode. ESC pops one layer at a time, then quits.
+    if (key.escape) {
+      if (showHelp) return setShowHelp(false);
+      if (searchError) return setSearchError("");
+      if (query) return setQuery("");
+      if (serverQuery) return clearServerSearch();
+      return finish(null);
+    }
+
+    if (input === "q") return finish(null);
+    if (isDownKey(input, key)) return setSelected((value) => Math.min(value + 1, filtered.length - 1));
+    if (isUpKey(input, key)) return setSelected((value) => Math.max(value - 1, 0));
+    if (input === "/") {
       setMode("filter");
       setShowHelp(false);
       setSearchError("");
-    } else if (input === "?") setShowHelp((value) => !value);
-    else if (key.escape && (showHelp || query || serverQuery || searchError)) {
-      if (query) setQuery("");
-      else if (serverQuery) {
-        setCurrentMeetings(initialMeetings.current);
-        setServerQuery("");
-        setSelected(0);
-      } else {
-        setShowHelp(false);
-        setSearchError("");
-      }
-    } else if (input === "q" || key.escape) finish(null);
-    else if (key.return && filtered[selected]) loadPanel("view");
-    else if (input === "n" && filtered[selected]) loadPanel("notes");
-    else if (input === "t" && filtered[selected]) loadPanel("transcript");
-    else if (input === "a" && filtered[selected]) confirmMutation("actions");
-    else if (input === "f" && filtered[selected]) confirmMutation("followup");
+      return;
+    }
+    if (input === "?") return setShowHelp((value) => !value);
+    if (key.return && filtered[selected]) return loadPanel("view");
+    if (input === "n" && filtered[selected]) return loadPanel("notes");
+    if (input === "t" && filtered[selected]) return loadPanel("transcript");
+    if (input === "a" && filtered[selected]) return confirmMutation("actions");
+    if (input === "f" && filtered[selected]) return confirmMutation("followup");
   });
 
   if (mode === "confirm") {
@@ -240,6 +250,7 @@ function MeetingBrowser({ client, tools, meetings, options, pickerOptions, helpe
       action: pendingAction,
       meeting: filtered[selected],
       showHelp,
+      screenHeight,
     });
   }
 
@@ -249,8 +260,9 @@ function MeetingBrowser({ client, tools, meetings, options, pickerOptions, helpe
       showHelp,
       panelScroll,
       copyStatus,
-      maxBodyLines: Math.max(4, screenHeight - (showHelp ? 18 : 7)),
+      maxBodyLines: Math.max(4, screenHeight - (showHelp ? 16 : 5)),
       truncate: options.browsePanelTruncate,
+      screenHeight,
     });
   }
 
@@ -263,23 +275,25 @@ function MeetingBrowser({ client, tools, meetings, options, pickerOptions, helpe
     showHelp,
     searching,
     searchError,
-    maxRows: Math.max(5, screenHeight - (showHelp ? 19 : 7)),
+    maxRows: Math.max(5, screenHeight - (showHelp ? 17 : 5)),
     width: screenWidth,
+    screenHeight,
   });
 }
 
-function ListView({ filtered, selected, query, serverQuery, mode, showHelp, searching, searchError, maxRows, width }) {
+function ListView({ filtered, selected, query, serverQuery, mode, showHelp, searching, searchError, maxRows, width, screenHeight }) {
   const windowed = windowRows(filtered, selected, maxRows);
   const columns = listColumns(width);
-  return h(Box, { flexDirection: "column" },
+  const countLabel = filtered.length > maxRows
+    ? `${windowed.start + 1}-${windowed.end} of ${filtered.length} meetings`
+    : `${filtered.length} meeting${filtered.length === 1 ? "" : "s"}`;
+  return h(Box, { flexDirection: "column", height: screenHeight },
     h(Header, { title: "Quill meetings", hint: mode === "filter"
       ? "type=filter live  Enter=server search  Esc=cancel"
       : "Enter=view  n=notes  t=transcript  a=actions  f=follow-up  /=search  ? help  q=quit" }),
     mode === "filter"
       ? h(Text, null, h(Text, { color: "cyan" }, "search: "), query, h(Text, { color: "cyan" }, "█"))
-      : serverQuery
-        ? h(Text, null, h(Text, { color: "cyan" }, `server results for "${serverQuery}"`), h(Text, { dimColor: true }, "  (Esc to clear)"))
-        : h(Text, { dimColor: true }, `${filtered.length} meetings`),
+      : null,
     searchError ? h(Text, { color: "red" }, searchError) : null,
     showHelp ? h(HelpView) : null,
     searching ? h(Text, { color: "cyan" }, `Searching for "${query || serverQuery}"...`) : null,
@@ -292,8 +306,14 @@ function ListView({ filtered, selected, query, serverQuery, mode, showHelp, sear
         query,
         columns,
       })),
-      filtered.length > maxRows ? h(Text, { dimColor: true }, `${windowed.start + 1}-${windowed.end} of ${filtered.length}`) : null,
     ) : null,
+    h(Box, { flexGrow: 1 }),
+    h(Box, { flexDirection: "column" },
+      serverQuery
+        ? h(Text, null, h(Text, { color: "cyan" }, `server results for "${serverQuery}"`), h(Text, { dimColor: true }, "  (Esc to clear)"))
+        : null,
+      mode !== "filter" && !searching ? h(Text, { dimColor: true }, countLabel) : null,
+    ),
   );
 }
 
@@ -320,13 +340,13 @@ function MeetingRow({ meeting, selected, query, columns }) {
   );
 }
 
-function PanelView({ panel, showHelp, panelScroll, copyStatus, maxBodyLines, truncate }) {
+function PanelView({ panel, showHelp, panelScroll, copyStatus, maxBodyLines, truncate, screenHeight }) {
   const body = truncatePanel(panel?.body || "", truncate);
   const lines = body.split("\n");
   const maxScroll = Math.max(lines.length - maxBodyLines, 0);
   const scroll = Math.min(panelScroll, maxScroll);
   const visibleLines = lines.slice(scroll, scroll + maxBodyLines);
-  return h(Box, { flexDirection: "column" },
+  return h(Box, { flexDirection: "column", height: screenHeight },
     h(Header, {
       title: panel?.title || "Meeting",
       hint: "b/Esc=list  c=copy  n=notes  t=transcript  a=actions  f=follow-up  arrows/j/k=scroll  ? help  q=quit",
@@ -336,27 +356,30 @@ function PanelView({ panel, showHelp, panelScroll, copyStatus, maxBodyLines, tru
     h(Box, { borderStyle: "round", borderColor: panel?.kind === "error" ? "red" : "cyan", paddingX: 1, flexDirection: "column" },
       ...visibleLines.map((line, index) => h(Text, { key: `${scroll}-${index}` }, line || " ")),
     ),
+    h(Box, { flexGrow: 1 }),
     copyStatus ? h(Text, { color: copyStatus.startsWith("Copied") ? "green" : "yellow" }, copyStatus) : null,
     h(PanelFooter, { scroll, maxScroll, maxBodyLines, totalLines: lines.length }),
   );
 }
 
-function ConfirmView({ action, meeting, showHelp }) {
-  return h(Box, { flexDirection: "column" },
+function ConfirmView({ action, meeting, showHelp, screenHeight }) {
+  return h(Box, { flexDirection: "column", height: screenHeight },
     h(Header, { title: actionLabel(action), hint: "y=create  n/b/Esc=cancel  ? help  q=quit", tone: "warning" }),
     showHelp ? h(HelpView) : null,
+    h(Box, { flexGrow: 1 }),
     h(Box, { borderStyle: "round", borderColor: "yellow", paddingX: 1, flexDirection: "column" },
       h(Text, null, "Create a generated ", actionLabel(action).toLowerCase(), " note for:"),
       h(Text, { bold: true }, meeting?.title || "(untitled)"),
       h(Text, null, " "),
       h(Text, { color: "yellow" }, "This will add a new note to the meeting in Quill."),
     ),
+    h(Box, { flexGrow: 1 }),
   );
 }
 
 function Header({ title, hint, tone = "normal" }) {
   const color = tone === "warning" ? "yellow" : tone === "error" ? "red" : "cyan";
-  return h(Box, { flexDirection: "column", marginBottom: 1 },
+  return h(Box, { flexDirection: "column" },
     h(Text, { color, bold: true }, title),
     h(Text, { dimColor: true }, hint),
   );
