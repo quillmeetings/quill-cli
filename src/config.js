@@ -40,6 +40,21 @@ export function defaultBridgePath() {
   return path.join(xdgDataHome, "Quill", "mcp-stdio-bridge.js");
 }
 
+export function defaultQuillDataDir() {
+  const home = os.homedir();
+  if (process.platform === "darwin") return path.join(home, "Library", "Application Support", "Quill");
+  if (process.platform === "win32") {
+    const appData = process.env.APPDATA || path.join(home, "AppData", "Roaming");
+    return path.join(appData, "Quill");
+  }
+  const xdgDataHome = process.env.XDG_DATA_HOME || path.join(home, ".local", "share");
+  return path.join(xdgDataHome, "Quill");
+}
+
+export function supportedPlatform() {
+  return process.platform === "darwin" || process.platform === "win32";
+}
+
 export function loadConfig() {
   return mergeConfig(defaultConfig(), readUserConfig());
 }

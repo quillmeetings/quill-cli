@@ -30,6 +30,7 @@ export function toHuman(data) {
 
   if (result.bin && result.description) return toStatusScreen(result, data.help);
   if (result.config_path && result.mcp_bridge) return toStatusScreen({ title: "Quill setup", ...result }, data.help);
+  if (result.title === "Quill doctor" && Array.isArray(result.checks)) return toDoctorScreen(result);
 
   for (const key of ["meetings", "events", "contacts", "templates", "threads", "notes"]) {
     if (Array.isArray(result[key])) {
@@ -42,6 +43,21 @@ export function toHuman(data) {
 
   if (typeof result.message === "string") return result.message;
   return null;
+}
+
+function toDoctorScreen(result) {
+  const lines = [result.title, ""];
+  for (const check of result.checks) {
+    lines.push(`${check.status.padEnd(4)} ${check.name}: ${check.message}`);
+    if (check.remediation) lines.push(`     ${check.remediation}`);
+  }
+  lines.push("");
+  if (result.all_good) {
+    lines.push("All good. Run `quill browse`.");
+  } else {
+    lines.push(`${result.issue_count} issue${result.issue_count === 1 ? "" : "s"} - start with: ${result.start_with}`);
+  }
+  return lines.join("\n");
 }
 
 function toStatusScreen(data, help) {

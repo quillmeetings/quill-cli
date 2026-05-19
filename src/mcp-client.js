@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 
 const DEFAULT_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 
@@ -14,10 +15,18 @@ export class McpClient {
   }
 
   async connect() {
-    this.child = spawn(this.config.command, this.config.args, {
-      stdio: ["pipe", "pipe", "pipe"],
-      env: mcpEnvironment(),
-    });
+    if (this.config.command === "node" && this.config.args?.[0] && !existsSync(this.config.args[0])) {
+      throw bridgeNotFoundError(this.config);
+    }
+
+    try {
+      this.child = spawn(this.config.command, this.config.args, {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: mcpEnvironment(),
+      });
+    } catch (error) {
+      throw normalizeSpawnError(error, this.config);
+    }
 
     this.child.stdout.on("data", (chunk) => this.#onData(chunk));
     this.child.stderr.on("data", (chunk) => {
@@ -29,6 +38,14 @@ export class McpClient {
       for (const { reject, timeout } of this.pending.values()) {
         clearTimeout(timeout);
         reject(error);
+      }
+      this.pending.clear();
+    });
+    this.child.on("error", (error) => {
+      const normalized = normalizeSpawnError(error, this.config);
+      for (const { reject, timeout } of this.pending.values()) {
+        clearTimeout(timeout);
+        reject(normalized);
       }
       this.pending.clear();
     });
@@ -163,6 +180,24 @@ export class McpClient {
       pending.resolve(message.result);
     }
   }
+}
+
+function normalizeSpawnError(error, config) {
+  if (error?.code === "ENOENT") {
+    return bridgeNotFoundError(config);
+  }
+  return error;
+}
+
+function bridgeNotFoundError(config) {
+  const error = new Error("Bridge not found. Run `quill doctor`.");
+  error.code = "mcp_bridge_not_found";
+  error.exitCode = 1;
+  error.details = {
+    command: config.command,
+    args: config.args,
+  };
+  return error;
 }
 
 function mcpEnvironment() {

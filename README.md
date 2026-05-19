@@ -9,7 +9,21 @@ The CLI is designed for two audiences:
 
 ## Install
 
-From this repo:
+Run the CLI without installing it globally:
+
+```bash
+npx @quillmeetings/cli init
+npx @quillmeetings/cli doctor
+```
+
+Or install it globally:
+
+```bash
+npm i -g @quillmeetings/cli
+quill init
+```
+
+For local development from this repo:
 
 ```bash
 npm link
@@ -24,7 +38,9 @@ node bin/quill.js --help
 
 ## Prerequisite: Quill MCP Bridge
 
-The CLI talks to Quill through a local MCP bridge that ships with the Quill desktop app. The default bridge path is platform-aware:
+The CLI talks to Quill through a local MCP bridge that ships with the Quill desktop app. Install Quill desktop, sign in, and enable the MCP server in Quill Settings -> MCP / Integrations.
+
+The default bridge path is platform-aware:
 
 ```text
 macOS:   ~/Library/Application Support/Quill/mcp-stdio-bridge.js
@@ -35,6 +51,12 @@ The CLI uses built-in defaults and does not need a config file for the happy pat
 
 ```bash
 quill init
+```
+
+To diagnose setup problems without running a meeting command:
+
+```bash
+quill doctor
 ```
 
 If your bridge is elsewhere, point the CLI at it:
@@ -60,6 +82,7 @@ Start with the interactive picker:
 
 ```bash
 quill init
+quill doctor
 quill browse
 quill meetings browse --limit 20
 quill meetings browse --search "roadmap"
@@ -117,6 +140,7 @@ quill t <id>             # transcript
 ## Common Commands
 
 ```bash
+quill doctor
 quill meetings list --limit 10
 quill meetings list --today
 quill meetings view <id>
@@ -245,6 +269,7 @@ Persistent settings live in JSON:
 ```
 
 Use `QUILL_CONFIG=/path/to/config.json` to point the CLI at a different config file for tests or one-off runs.
+Precedence is: command flags > environment variables > config file > built-in defaults.
 
 ```bash
 quill config path
@@ -255,7 +280,7 @@ quill config set mcp.mutation_timeout_ms 180000
 quill config set mcp.args '["/path/to/mcp-stdio-bridge.js"]'
 ```
 
-`quill init` is the guided setup command. It creates the config only if it is missing, checks the expected bridge path, and prints the next useful command.
+`quill init` is the guided setup command. It creates the config only if it is missing, then runs the same setup checks as `quill doctor`.
 
 The only Quill-specific environment overrides are:
 
@@ -298,10 +323,19 @@ Completion covers commands and subcommands. Meeting IDs are not currently comple
 ## Development
 
 ```bash
-npm run check
-npm run smoke
+npm run check    # node --check on every source file
+npm run smoke    # `quill --help` exits cleanly
+npm test         # run the unit-test suite
 node bin/quill.js mcp tools
 ```
+
+The test suite uses Node's built-in `node:test` and `node:assert` — no external test framework. Files live in `test/` and cover the highest-leverage code:
+
+- `test/mcp-client.test.js` — the `<ToolResponse>` XML-ish parser (`extractToolResult` / `parseQuillToolResponse`).
+- `test/tool-router.test.js` — fuzzy alias matching in `findTool` and key remapping in `buildArgs`.
+- `test/format.test.js` — `shapeForOutput`, `toHuman`, `toToon`, `truncateText`, etc.
+
+To run a single file: `node --test test/mcp-client.test.js`.
 
 Useful debug commands:
 
@@ -320,6 +354,7 @@ bin/quill.js          CLI entrypoint and top-level error handling
 src/cli.js            command parsing, routing, help, and MCP command wiring
 src/browser.js        Ink-powered interactive meeting browser
 src/config.js         JSON config defaults, path resolution, get/set helpers
+src/doctor.js         First-run diagnostics for Quill desktop and MCP setup
 src/mcp-client.js     Quill MCP bridge client and ToolResponse parsing
 src/format.js         TOON/JSON/human output shaping, truncation, field selection
 src/tool-router.js    curated command to MCP tool mapping

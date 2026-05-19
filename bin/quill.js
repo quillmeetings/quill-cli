@@ -1,5 +1,11 @@
 #!/usr/bin/env node
-import { runCli } from "../src/cli.js";
+const major = Number.parseInt(process.versions.node.split(".")[0], 10);
+if (major < 20) {
+  process.stderr.write(`Quill CLI needs Node 20+. You have ${process.versions.node}.\n`);
+  process.exit(1);
+}
+
+const { runCli } = await import("../src/cli.js");
 
 runCli(process.argv.slice(2)).catch((error) => {
   const code = Number.isInteger(error?.exitCode) ? error.exitCode : 1;

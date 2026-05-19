@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractToolResult } from "../src/mcp-client.js";
+import { McpClient, extractToolResult } from "../src/mcp-client.js";
 
 function toolResult(text) {
   return { content: [{ type: "text", text }] };
@@ -9,6 +9,22 @@ function toolResult(text) {
 test("extractToolResult: passes through when result has no content", () => {
   const input = { foo: "bar" };
   assert.equal(extractToolResult(input), input);
+});
+
+test("McpClient.connect: missing node bridge returns doctor hint", async () => {
+  const client = new McpClient({
+    command: "node",
+    args: ["/definitely/missing/quill/mcp-stdio-bridge.js"],
+    timeout_ms: 10,
+  });
+  await assert.rejects(
+    () => client.connect(),
+    (error) => {
+      assert.equal(error.code, "mcp_bridge_not_found");
+      assert.equal(error.message, "Bridge not found. Run `quill doctor`.");
+      return true;
+    }
+  );
 });
 
 test("extractToolResult: passes through when content has no text items", () => {

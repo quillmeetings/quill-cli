@@ -94,6 +94,24 @@ test("toHuman: result.message returns just the message", () => {
   assert.equal(toHuman({ result: { message: "Hello" } }), "Hello");
 });
 
+test("toHuman: renders doctor checks and summary", () => {
+  const out = toHuman({
+    result: {
+      title: "Quill doctor",
+      checks: [
+        { name: "Platform support", status: "PASS", message: "macOS is supported." },
+        { name: "MCP handshake", status: "FAIL", message: "Timed out.", remediation: "Enable MCP." },
+      ],
+      issue_count: 1,
+      all_good: false,
+      start_with: "Enable MCP.",
+    },
+  });
+  assert.ok(out.includes("PASS Platform support: macOS is supported."));
+  assert.ok(out.includes("FAIL MCP handshake: Timed out."));
+  assert.ok(out.includes("1 issue - start with: Enable MCP."));
+});
+
 test("toHuman: returns null for scalars and nullish", () => {
   assert.equal(toHuman("nothing"), null);
   assert.equal(toHuman(42), null);

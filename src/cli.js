@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { runMeetingBrowser } from "./browser.js";
-import { configPath, defaultBridgePath, ensureConfigFile, getConfigValue, loadConfig, readUserConfig, setConfigValue, writeUserConfig } from "./config.js";
+import { configPath, defaultBridgePath, ensureConfigFile, getConfigValue, loadConfig, readUserConfig, setConfigValue, supportedPlatform, writeUserConfig } from "./config.js";
+import { CLI_VERSION, runDoctorChecks } from "./doctor.js";
 import { extractToolResult, McpClient } from "./mcp-client.js";
 import { printData, structuredError, truncateText, withHelp } from "./format.js";
 import { buildArgs, findTool } from "./tool-router.js";
@@ -20,7 +21,7 @@ export async function runCli(argv) {
   }
 
   if (options.version) {
-    printData({ version: "0.1.0" }, options);
+    printData({ version: CLI_VERSION }, options);
     return;
   }
 
@@ -31,6 +32,11 @@ export async function runCli(argv) {
 
   if (command === "init") {
     await runInit(options, config);
+    return;
+  }
+
+  if (command === "doctor") {
+    await runDoctor(options, config);
     return;
   }
 
@@ -123,29 +129,32 @@ async function runConfig(args, options, config) {
 
 async function runInit(options, config) {
   const result = ensureConfigFile();
-  const bridge = config.mcp.args[0] || defaultBridgePath();
-  const bridgeFound = existsSync(bridge);
-  const setup = {
+  const doctor = await runDoctorChecks(loadConfig());
+  const setup = withHelp({
     config_path: result.path,
     config_created: result.created,
-    platform: process.platform,
-    mcp_bridge: bridge,
-    mcp_bridge_found: bridgeFound,
-    next: bridgeFound
+    platform: doctor.platform,
+    mcp_bridge: doctor.configured_bridge || defaultBridgePath(),
+    mcp_bridge_found: existsSync(doctor.configured_bridge || defaultBridgePath()),
+    doctor: doctor.all_good ? "pass" : `${doctor.issue_count} issue${doctor.issue_count === 1 ? "" : "s"}`,
+    next: doctor.all_good
       ? "Run `quill mcp tools` to verify MCP, then `quill browse`."
-      : "Install Quill or run `quill config set mcp.args '[\"/path/to/mcp-stdio-bridge.js\"]'`.",
-  };
-
-  if (!bridgeFound) {
-    printData(structuredError("mcp_bridge_not_found", "Quill MCP bridge was not found.", setup), options);
-    process.exitCode = 1;
-    return;
-  }
-
-  printData(withHelp(setup, [
-    "Run `quill mcp tools` to verify MCP",
+      : `Run \`quill doctor\`. Start with: ${doctor.start_with}`,
+  }, [
+    "Run `quill doctor` to diagnose Quill desktop and MCP setup",
     "Run `quill browse` to open the meeting picker",
-  ]), options);
+  ]);
+
+  printData(setup, options);
+  if (!doctor.all_good) {
+    process.exitCode = 1;
+  }
+}
+
+async function runDoctor(options, config) {
+  const doctor = await runDoctorChecks(config);
+  printData({ result: doctor }, options);
+  if (!doctor.all_good) process.exitCode = 1;
 }
 
 async function runMcp(client, args, options) {
@@ -627,6 +636,7 @@ function printHelp(topic) {
 Usage:
   quill
   quill init
+  quill doctor
   quill meetings list [--limit 20] [--since 7d] [--search text]
   quill browse [--limit 20] [--search text]
   quill meetings browse [--limit 20] [--search text]
@@ -686,7 +696,13 @@ Hints:
   quill init
 
 Notes:
-  Writes the default JSON config if it does not exist, checks the platform-specific Quill MCP bridge path, and prints the next setup command.
+  Writes the default JSON config if it does not exist, then runs the same setup checks as \`quill doctor\`.
+`,
+    doctor: `Usage:
+  quill doctor
+
+Notes:
+  Checks Quill desktop install state, MCP bridge path, CLI config, app/CLI version info, and a short MCP handshake.
 `,
     browse: `Usage:
   quill browse [--limit 20] [--search text] [--since 7d]
@@ -767,6 +783,9 @@ function normalizeCommandArgs(args) {
 }
 
 function validateBeforeMcp(args, options) {
+  if (!supportedPlatform()) {
+    throw cliError("unsupported_platform", "Quill CLI currently supports macOS and Windows. Linux support is not available yet.");
+  }
   if (!options.agent) return;
   const [domain, actionOrValue, maybeValue] = args;
   if (domain === "browse" || ((domain === "meetings" || domain === "meeting") && actionOrValue === "browse")) {
@@ -791,7 +810,7 @@ function looksLikeId(value) {
 }
 
 function printCompletion(shell) {
-  const commands = "browse meetings meeting ls v view notes note n actions action-items followup follow-up transcript t search contacts threads events templates mcp config completion help";
+  const commands = "doctor init browse meetings meeting ls v view notes note n actions action-items followup follow-up transcript t search contacts threads events templates mcp config completion help";
   if (shell === "bash") {
     process.stdout.write(`_quill_complete(){ COMPREPLY=( $(compgen -W "${commands}" -- "\${COMP_WORDS[COMP_CWORD]}") ); }\ncomplete -F _quill_complete quill\n`);
     return;
