@@ -204,6 +204,76 @@ Interactive browsing is disabled in agent mode. `quill browse --json` returns a 
 }
 ```
 
+## LLM Agent Usage
+
+LLM agents should use `--json` for deterministic output and should avoid interactive commands.
+
+Recommended preflight:
+
+```bash
+quill doctor --json
+```
+
+Common agent-safe commands:
+
+```bash
+quill meetings list --json --limit 10
+quill meetings list --json --today
+quill search "pricing risk" --json --limit 5
+quill meetings view <meeting-id> --json
+quill notes <meeting-id> --json
+quill transcript <meeting-id> --json --full
+quill actions <meeting-id> --json --instruction "Group by owner"
+quill followup <meeting-id> --json --instruction "Tone: concise and ready to send"
+```
+
+Agent rules:
+
+- Always pass `--json` when another program will parse the result.
+- Do not call `quill browse`; it requires a real terminal.
+- If setup fails, run `quill doctor --json` and follow the first remediation.
+- Use `--fields` to reduce context for list commands.
+- Use `--full` only when the complete transcript or note body is needed.
+- Use `quill mcp tools --json` and `quill mcp schema <tool> --json` only when curated commands do not cover the task.
+
+See [SKILL.md](SKILL.md) for a compact agent instruction file that can be copied into agent systems such as Hermes, Claude Code, or Codex.
+
+## Shell Automation
+
+Use `--json` with `jq` for scripts:
+
+```bash
+quill meetings list --json --limit 5 \
+  | jq -r '.result.meetings[] | [.id, .title, .date] | @tsv'
+```
+
+Fetch notes for today's meetings:
+
+```bash
+quill meetings list --json --today \
+  | jq -r '.result.meetings[].id' \
+  | while read -r id; do
+      quill notes "$id" --json
+    done
+```
+
+Search meetings and print IDs:
+
+```bash
+quill search "customer renewal" --json --limit 10 \
+  | jq -r '.result.meetings[].id'
+```
+
+Fail fast in CI or cron:
+
+```bash
+set -euo pipefail
+quill doctor --json >/dev/null
+quill meetings list --json --limit 1 >/dev/null
+```
+
+For repeatable scripts, prefer command flags over persistent config. Precedence is: command flags > environment variables > config file > built-in defaults.
+
 ## Output
 
 Default output is human-readable. Lists render as tables in normal CLI use. Use `--format toon` for compact, YAML-like output that's cheap on LLM context, or `--json` for machine consumers.
