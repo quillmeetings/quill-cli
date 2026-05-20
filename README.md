@@ -36,7 +36,7 @@ Or run without linking:
 node bin/quill.js --help
 ```
 
-## Prerequisite: Quill MCP Bridge
+## Prerequisite: Enable Quill MCP Bridge (In Desktop App)
 
 The CLI talks to Quill through a local MCP bridge that ships with the Quill desktop app. Install Quill desktop, sign in, and enable the MCP server in Quill Settings -> MCP / Integrations.
 
