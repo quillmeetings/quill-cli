@@ -93,14 +93,14 @@ quill mcp call <tool> --input '{"key":"value"}' --json
 Extract meeting IDs:
 
 ```bash
-quill meetings list --json --limit 10 | jq -r '.result.meetings[].id'
+quill meetings list --json --limit 10 | jq -r '.result.result.meetings[]?.id'
 ```
 
 Loop over today's meetings:
 
 ```bash
 quill meetings list --json --today \
-  | jq -r '.result.meetings[].id' \
+  | jq -r '.result.result.meetings[]?.id' \
   | while read -r id; do
       quill notes "$id" --json
     done

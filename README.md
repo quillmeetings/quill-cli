@@ -244,14 +244,14 @@ Use `--json` with `jq` for scripts:
 
 ```bash
 quill meetings list --json --limit 5 \
-  | jq -r '.result.meetings[] | [.id, .title, .date] | @tsv'
+  | jq -r '.result.result.meetings[]? | [.id, .title, .date] | @tsv'
 ```
 
 Fetch notes for today's meetings:
 
 ```bash
 quill meetings list --json --today \
-  | jq -r '.result.meetings[].id' \
+  | jq -r '.result.result.meetings[]?.id' \
   | while read -r id; do
       quill notes "$id" --json
     done
@@ -261,7 +261,7 @@ Search meetings and print IDs:
 
 ```bash
 quill search "customer renewal" --json --limit 10 \
-  | jq -r '.result.meetings[].id'
+  | jq -r '.result.result.meetings[]?.id'
 ```
 
 Fail fast in CI or cron:
