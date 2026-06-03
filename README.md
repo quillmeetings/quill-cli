@@ -236,7 +236,7 @@ Agent rules:
 - Use `--full` only when the complete transcript or note body is needed.
 - Use `quill mcp tools --json` and `quill mcp schema <tool> --json` only when curated commands do not cover the task.
 
-See [SKILL.md](SKILL.md) for a compact agent instruction file that can be copied into agent systems such as Hermes, Claude Code, or Codex.
+See [SKILL.md](SKILL.md) for a compact agent instruction file that can be copied into agent systems such as local agent runners, Claude Code, or Codex.
 
 ## Shell Automation
 
@@ -435,3 +435,7 @@ Implementation notes:
 - Quill's bridge currently returns newline-delimited JSON-RPC, not standard `Content-Length` stdio framing.
 - Quill tool results often contain XML-like `ToolResponse` text. The CLI parses the known Quill response shapes for compact display and keeps raw MCP access available for debugging.
 - MCP stdout buffers are capped by `mcp.max_buffer_bytes` to avoid unbounded memory growth on malformed or very large responses.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

@@ -6,7 +6,7 @@ Quill CLI is a command-line companion for Quill Meetings that lets developers, o
 
 ### Who is this for?
 
-Quill CLI is for developers, founders, operators, and AI-agent power users who live in the terminal and want their Quill meeting context available without opening another app. It is especially useful for people using tools like Claude Code, Codex, Hermes, shell scripts, or internal automation that need structured access to notes, transcripts, action items, and meeting search.
+Quill CLI is for developers, founders, operators, and AI-agent power users who live in the terminal and want their Quill meeting context available without opening another app. It is especially useful for people using tools like Claude Code, Codex, local agent runners, shell scripts, or internal automation that need structured access to notes, transcripts, action items, and meeting search.
 
 ### Why is this exciting?
 
