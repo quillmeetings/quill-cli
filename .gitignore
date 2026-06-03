@@ -1,4 +1,5 @@
 .claude/
+.optibot
 .cursorrules
 node_modules/
 AGENTS.md

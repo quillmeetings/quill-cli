@@ -401,7 +401,7 @@ node bin/quill.js mcp tools
 
 The test suite uses Node's built-in `node:test` and `node:assert` — no external test framework. Files live in `test/` and cover the highest-leverage code:
 
-- `test/mcp-client.test.js` — the `<ToolResponse>` XML-ish parser (`extractToolResult` / `parseQuillToolResponse`).
+- `test/mcp-client.test.js` — MCP result parsing and client error handling.
 - `test/tool-router.test.js` — fuzzy alias matching in `findTool` and key remapping in `buildArgs`.
 - `test/format.test.js` — `shapeForOutput`, `toHuman`, `toToon`, `truncateText`, etc.
 
@@ -425,17 +425,15 @@ src/cli.js            command parsing, routing, help, and MCP command wiring
 src/browser.js        Ink-powered interactive meeting browser
 src/config.js         JSON config defaults, path resolution, get/set helpers
 src/doctor.js         First-run diagnostics for Quill desktop and MCP setup
-src/mcp-client.js     Quill MCP bridge client and ToolResponse parsing
+src/mcp-client.js     Quill MCP bridge client and result parsing
 src/format.js         TOON/JSON/human output shaping, truncation, field selection
 src/tool-router.js    curated command to MCP tool mapping
 ```
 
-Implementation notes:
-
-- Quill's bridge currently returns newline-delimited JSON-RPC, not standard `Content-Length` stdio framing.
-- Quill tool results often contain XML-like `ToolResponse` text. The CLI parses the known Quill response shapes for compact display and keeps raw MCP access available for debugging.
-- MCP stdout buffers are capped by `mcp.max_buffer_bytes` to avoid unbounded memory growth on malformed or very large responses.
-
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Trademarks
+
+Quill and Quill Meetings are trademarks of Quill Meetings. See [TRADEMARKS.md](TRADEMARKS.md).
