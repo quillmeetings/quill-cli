@@ -2,6 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+// Where to send users who don't have Quill desktop / the MCP bridge yet.
+// Defined here (no internal imports) so every layer can surface it without
+// risking a circular import.
+export const DOWNLOAD_URL = "https://www.quillmeetings.com/download";
+
 export function defaultConfig() {
   return {
     mcp: {

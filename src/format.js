@@ -229,6 +229,16 @@ function applyFieldSelection(data, options) {
   for (const collection of collections) {
     const selected = fields || defaultFieldsFor(collection.key);
     if (!selected) continue;
+    // An explicit --fields that matches no keys would delete every column and
+    // emit empty rows. Skip filtering and warn (on stderr, so stdout/JSON stays
+    // clean) rather than silently dropping all data.
+    if (fields && collection.items.length > 0) {
+      const anyMatch = collection.items.some((item) => Object.keys(item).some((key) => selected.includes(key)));
+      if (!anyMatch) {
+        process.stderr.write(`Warning: --fields ${selected.join(",")} matched no fields on ${collection.key}; showing all fields.\n`);
+        continue;
+      }
+    }
     collection.items.forEach((item) => {
       for (const key of Object.keys(item)) {
         if (!selected.includes(key)) delete item[key];

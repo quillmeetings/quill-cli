@@ -1,12 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { defaultBridgePath, defaultQuillDataDir, supportedPlatform } from "./config.js";
+import { DOWNLOAD_URL, defaultBridgePath, defaultQuillDataDir, supportedPlatform } from "./config.js";
 import { McpClient } from "./mcp-client.js";
+import { CLI_VERSION } from "./version.js";
 
-export const CLI_VERSION = "0.1.0";
-
-const DOWNLOAD_URL = "https://www.quillmeetings.com/download";
+export { CLI_VERSION };
 const MCP_SETTINGS_HINT = "Open Quill Settings -> MCP / Integrations and enable the MCP server.";
 
 export async function runDoctorChecks(config, options = {}) {
@@ -39,7 +38,7 @@ export async function runDoctorChecks(config, options = {}) {
     name: "Default MCP bridge",
     status: defaultBridgeExists ? "PASS" : quillDirExists ? "FAIL" : "WARN",
     message: defaultBridgeExists ? `Found ${defaultBridge}.` : `Could not find ${defaultBridge}.`,
-    remediation: defaultBridgeExists ? undefined : quillDirExists ? "Update Quill desktop, then run `quill doctor` again." : "Install and launch Quill desktop first.",
+    remediation: defaultBridgeExists ? undefined : quillDirExists ? "Update Quill desktop, then run `quill doctor` again." : `Install and launch Quill desktop first: ${DOWNLOAD_URL}`,
   });
 
   checks.push(configBridgeCheck(configuredBridge, configuredBridgeExists, defaultBridge, defaultBridgeExists));
@@ -98,7 +97,7 @@ function configBridgeCheck(configuredBridge, configuredBridgeExists, defaultBrid
       name: "CLI bridge config",
       status: configuredBridgeExists ? "PASS" : "FAIL",
       message: configuredBridgeExists ? "Config points at the platform default bridge." : "Config points at the platform default bridge, but the file is missing.",
-      remediation: configuredBridgeExists ? undefined : "Install or update Quill desktop.",
+      remediation: configuredBridgeExists ? undefined : `Install or update Quill desktop: ${DOWNLOAD_URL}`,
     };
   }
 
@@ -115,7 +114,7 @@ function configBridgeCheck(configuredBridge, configuredBridgeExists, defaultBrid
     name: "CLI bridge config",
     status: "FAIL",
     message: `Configured bridge is missing: ${configuredBridge}.`,
-    remediation: defaultBridgeExists ? resetBridgeCommand(defaultBridge) : "Install or update Quill desktop, or set mcp.args to the correct bridge path.",
+    remediation: defaultBridgeExists ? resetBridgeCommand(defaultBridge) : `Install or update Quill desktop (${DOWNLOAD_URL}), or set mcp.args to the correct bridge path.`,
   };
 }
 
@@ -142,14 +141,47 @@ async function handshakeCheck(config, timeoutMs = 3000) {
       message: `Connected and found ${tools.length} MCP tools.`,
     };
   } catch (error) {
+    const { message, remediation } = describeHandshakeError(error);
     return {
       name: "MCP handshake",
       status: "FAIL",
-      message: error?.code === "mcp_timeout" ? "Timed out waiting for the Quill MCP bridge." : error?.message || String(error),
-      remediation: error?.code === "mcp_timeout" ? MCP_SETTINGS_HINT : "Run `quill doctor --json` for details, then update Quill or reset the bridge path.",
+      message,
+      remediation,
     };
   } finally {
     await client.close();
+  }
+}
+
+function describeHandshakeError(error) {
+  switch (error?.code) {
+    case "mcp_timeout":
+      return { message: "Timed out waiting for the Quill MCP bridge.", remediation: MCP_SETTINGS_HINT };
+    case "mcp_server_exited":
+      return {
+        message: "The Quill MCP bridge started but exited before completing the handshake.",
+        remediation: "Restart Quill desktop and make sure the MCP server is enabled, then run `quill doctor` again.",
+      };
+    case "mcp_buffer_limit_exceeded":
+      return {
+        message: "The Quill MCP bridge sent more data than the CLI buffer allows.",
+        remediation: "Increase the limit with `quill config set mcp.max_buffer_bytes 20971520`, then run `quill doctor` again.",
+      };
+    case "mcp_parse_error":
+      return {
+        message: "The Quill MCP bridge returned output the CLI could not parse.",
+        remediation: "Update Quill desktop to the latest version, then run `quill doctor` again.",
+      };
+    case "mcp_bridge_not_found":
+      return {
+        message: "The Quill MCP bridge file was not found.",
+        remediation: `Install or update Quill desktop: ${DOWNLOAD_URL}`,
+      };
+    default:
+      return {
+        message: error?.message || String(error),
+        remediation: "Run `quill doctor --json` for details, then update Quill or reset the bridge path.",
+      };
   }
 }
 

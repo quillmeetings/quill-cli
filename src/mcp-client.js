@@ -1,7 +1,16 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { StringDecoder } from "node:string_decoder";
+import { DOWNLOAD_URL } from "./config.js";
+import { CLI_VERSION } from "./version.js";
 
 const DEFAULT_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
+
+// Tools that generate content can take much longer than a read, so they use
+// mcp.mutation_timeout_ms. Keyed on every name `findTool` may resolve to (not
+// just "create_note") so the long timeout is not silently lost on a server
+// that names the tool differently.
+const MUTATION_TOOL_NAMES = new Set(["create_note", "note_create", "create_meeting_note"]);
 
 export class McpClient {
   constructor(config) {
@@ -11,6 +20,7 @@ export class McpClient {
     this.pending = new Map();
     this.buffer = Buffer.alloc(0);
     this.textBuffer = "";
+    this.decoder = new StringDecoder("utf8");
     this.child = null;
   }
 
@@ -32,6 +42,10 @@ export class McpClient {
     this.child.stderr.on("data", (chunk) => {
       if (process.env.QUILL_DEBUG) process.stderr.write(chunk);
     });
+    // Writing to a dead bridge emits an 'error' on stdin; without a listener
+    // Node throws it as an uncaught exception and crashes the CLI. The pending
+    // requests are already rejected via the 'exit'/'error' handlers below.
+    this.child.stdin.on("error", () => {});
     this.child.on("exit", (code, signal) => {
       const error = new Error(`Quill MCP server exited with ${signal || code}`);
       error.code = "mcp_server_exited";
@@ -55,7 +69,7 @@ export class McpClient {
       capabilities: {},
       clientInfo: {
         name: "quill-cli",
-        version: "0.1.0",
+        version: CLI_VERSION,
       },
     });
     this.notify("notifications/initialized", {});
@@ -72,8 +86,9 @@ export class McpClient {
     return result.tools || [];
   }
 
-  async callTool(name, args = {}) {
-    const timeoutMs = name === "create_note"
+  async callTool(name, args = {}, options = {}) {
+    const isMutation = options.mutation || MUTATION_TOOL_NAMES.has(name);
+    const timeoutMs = isMutation
       ? Number.parseInt(this.config.mutation_timeout_ms || "120000", 10)
       : undefined;
     return this.request("tools/call", { name, arguments: args }, { timeoutMs });
@@ -135,12 +150,24 @@ export class McpClient {
 
       const body = this.buffer.slice(bodyStart, bodyEnd).toString("utf8");
       this.buffer = this.buffer.slice(bodyEnd);
-      this.#handleMessage(JSON.parse(body));
+      // A bad body means the byte stream is desynced; we cannot trust the
+      // remaining buffer, so fail loudly instead of throwing uncaught.
+      let message;
+      try {
+        message = JSON.parse(body);
+      } catch {
+        this.#failAllPending(parseError());
+        this.close();
+        return;
+      }
+      this.#handleMessage(message);
     }
   }
 
   #onLineData(chunk) {
-    this.textBuffer += chunk.toString("utf8");
+    // StringDecoder holds incomplete multibyte UTF-8 sequences across chunk
+    // boundaries so emoji/CJK/accented characters are never corrupted.
+    this.textBuffer += this.decoder.write(chunk);
     if (this.#failIfBufferLimitExceeded(Buffer.byteLength(this.textBuffer, "utf8"))) return;
     while (true) {
       const lineEnd = this.textBuffer.indexOf("\n");
@@ -148,7 +175,15 @@ export class McpClient {
       const line = this.textBuffer.slice(0, lineEnd).trim();
       this.textBuffer = this.textBuffer.slice(lineEnd + 1);
       if (!line) continue;
-      this.#handleMessage(JSON.parse(line));
+      // Bridges may emit non-JSON lines (logs, warnings) on stdout; skip them
+      // rather than crashing the process on an uncaught parse error.
+      let message;
+      try {
+        message = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      this.#handleMessage(message);
     }
   }
 
@@ -156,13 +191,17 @@ export class McpClient {
     if (size <= this.maxBufferBytes) return false;
     const error = new Error(`MCP response buffer exceeded ${this.maxBufferBytes} bytes`);
     error.code = "mcp_buffer_limit_exceeded";
+    this.#failAllPending(error);
+    this.close();
+    return true;
+  }
+
+  #failAllPending(error) {
     for (const { reject, timeout } of this.pending.values()) {
       clearTimeout(timeout);
       reject(error);
     }
     this.pending.clear();
-    this.close();
-    return true;
   }
 
   #handleMessage(message) {
@@ -189,13 +228,25 @@ function normalizeSpawnError(error, config) {
   return error;
 }
 
+function parseError() {
+  const error = new Error("Received malformed (non-JSON) data from the Quill MCP bridge.");
+  error.code = "mcp_parse_error";
+  return error;
+}
+
 function bridgeNotFoundError(config) {
-  const error = new Error("Bridge not found. Run `quill doctor`.");
+  const bridgePath = config.args?.[0];
+  const error = new Error(
+    `Quill MCP bridge not found${bridgePath ? ` at ${bridgePath}` : ""}. ` +
+    "Install Quill desktop and enable the MCP server (Settings -> MCP / Integrations), " +
+    `then run \`quill doctor\`. Get Quill: ${DOWNLOAD_URL}`
+  );
   error.code = "mcp_bridge_not_found";
   error.exitCode = 1;
   error.details = {
     command: config.command,
     args: config.args,
+    download_url: DOWNLOAD_URL,
   };
   return error;
 }
@@ -215,11 +266,40 @@ export function extractToolResult(result) {
   if (textParts.length === 0) return result;
 
   const text = textParts.join("\n");
+  // MCP signals tool-execution failures with isError; surface them as the
+  // stable { error: { code, message } } envelope so agents (and shell
+  // fail-fast) can detect failure instead of treating it as success.
+  if (result.isError) return toErrorResult(text);
   try {
     return JSON.parse(text);
   } catch {
     return parseQuillToolResponse(text);
   }
+}
+
+function toErrorResult(text) {
+  const stripped = String(text).replace(/^Error:\s*/i, "").trim();
+  let payload = null;
+  try {
+    payload = JSON.parse(stripped);
+  } catch {
+    payload = null;
+  }
+  if (payload && typeof payload === "object") {
+    return {
+      error: {
+        code: payload.code || "tool_error",
+        message: payload.message || stripped,
+        ...(payload.details ?? payload.data ? { details: payload.details ?? payload.data } : {}),
+      },
+    };
+  }
+  return { error: { code: "tool_error", message: stripped || "The Quill MCP tool returned an error." } };
+}
+
+// True when extractToolResult produced a normalized error envelope.
+export function isErrorResult(result) {
+  return Boolean(result && typeof result === "object" && result.error && typeof result.error === "object");
 }
 
 function parseQuillToolResponse(text) {

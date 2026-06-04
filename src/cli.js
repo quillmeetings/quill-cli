@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { runMeetingBrowser } from "./browser.js";
-import { configPath, defaultBridgePath, ensureConfigFile, getConfigValue, loadConfig, readUserConfig, setConfigValue, supportedPlatform, writeUserConfig } from "./config.js";
+import { DOWNLOAD_URL, configPath, defaultBridgePath, ensureConfigFile, getConfigValue, loadConfig, readUserConfig, setConfigValue, supportedPlatform, writeUserConfig } from "./config.js";
 import { CLI_VERSION, runDoctorChecks } from "./doctor.js";
-import { extractToolResult, McpClient } from "./mcp-client.js";
+import { extractToolResult, isErrorResult, McpClient } from "./mcp-client.js";
 import { printData, structuredError, truncateText, withHelp } from "./format.js";
 import { buildArgs, findTool } from "./tool-router.js";
 
@@ -68,16 +68,23 @@ export async function runCli(argv) {
 
 async function runHome(options, config) {
   const bridge = config.mcp.args[0];
+  const bridgeFound = existsSync(bridge);
+  const help = bridgeFound
+    ? [
+        "Run `quill mcp tools` to inspect available Quill MCP tools",
+        "Run `quill meetings list --limit 10` to list recent meetings",
+        "Run `quill search \"<query>\"` to search meeting content",
+      ]
+    : [
+        "Run `quill doctor` to diagnose Quill desktop and MCP setup",
+        `Install Quill desktop to get started: ${DOWNLOAD_URL}`,
+      ];
   printData(withHelp({
     bin: "quill",
     description: "Browse and search Quill Meetings through the local Quill MCP server",
     mcp_bridge: bridge,
-    mcp_bridge_found: existsSync(bridge),
-  }, [
-    "Run `quill mcp tools` to inspect available Quill MCP tools",
-    "Run `quill meetings list --limit 10` to list recent meetings",
-    "Run `quill search \"<query>\"` to search meeting content",
-  ]), options);
+    mcp_bridge_found: bridgeFound,
+  }, help), options);
 }
 
 async function runConfig(args, options, config) {
@@ -188,8 +195,15 @@ async function runMcp(client, args, options) {
     const name = args[1];
     if (!name) throw cliError("missing_tool", "Usage: quill mcp call <tool> --input '{...}'");
     const input = readOption(args.slice(2), "--input") || "{}";
-    const parsed = JSON.parse(input);
-    printData(extractToolResult(await client.callTool(name, parsed)), options);
+    let parsed;
+    try {
+      parsed = JSON.parse(input);
+    } catch (error) {
+      throw cliError("invalid_input_json", `Invalid --input JSON: ${error.message}. Example: quill mcp call ${name} --input '{"key":"value"}'`);
+    }
+    const callResult = extractToolResult(await client.callTool(name, parsed));
+    printData(callResult, options);
+    if (isErrorResult(callResult)) process.exitCode = 1;
     return;
   }
 
@@ -204,7 +218,7 @@ async function runCurated(client, args, options) {
 
   if (domain === "browse" || ((domain === "meetings" || domain === "meeting") && actionOrValue === "browse")) {
     await browseMeetings(client, tools, options, {
-      limit: flags.limit || browseDefaultLimit(options),
+      limit: browseDefaultLimit(options),
       since: flags.since,
       until: flags.until,
       today: flags.today,
@@ -217,7 +231,7 @@ async function runCurated(client, args, options) {
   if (domain === "meetings" || domain === "meeting") {
     if (!actionOrValue || actionOrValue === "list") {
       await callRoute(client, tools, "listMeetings", {
-        limit: flags.limit || options.limit,
+        limit: options.limit,
         since: flags.since,
         until: flags.until,
         today: flags.today,
@@ -245,7 +259,7 @@ async function runCurated(client, args, options) {
     const id = await resolveMeetingId(client, tools, actionOrValue, options);
     await callRoute(client, tools, "getTranscript", { id }, options, [
       "Run `quill notes <id>`",
-      "Run `quill export <id> --format json`",
+      "Run `quill transcript <id> --full` for the complete transcript",
     ]);
     return;
   }
@@ -297,7 +311,7 @@ async function runCurated(client, args, options) {
   if (domain === "search") {
     await callRoute(client, tools, "search", {
       query: parsed.positionals.join(" "),
-      limit: flags.limit || options.limit,
+      limit: options.limit,
       since: flags.since,
       until: flags.until,
       today: flags.today,
@@ -313,7 +327,7 @@ async function runCurated(client, args, options) {
     if (!actionOrValue || actionOrValue === "list" || actionOrValue === "search") {
       await callRoute(client, tools, "listContacts", {
         query: actionOrValue === "search" ? parseFlags(args.slice(2)).positionals.join(" ") : flags.search,
-        limit: flags.limit || options.limit,
+        limit: options.limit,
         offset: flags.offset,
       }, options, [
         "Run `quill contacts get <id>`",
@@ -322,6 +336,7 @@ async function runCurated(client, args, options) {
       return;
     }
     if (actionOrValue === "get") {
+      if (!maybeValue) throw cliError("missing_id", "Missing id. Usage: quill contacts get <id>.");
       await callRoute(client, tools, "getContact", { id: maybeValue }, options, [
         "Run `quill contacts search \"<name>\"`",
       ]);
@@ -341,6 +356,7 @@ async function runCurated(client, args, options) {
       return;
     }
     if (actionOrValue === "get") {
+      if (!maybeValue) throw cliError("missing_id", "Missing id. Usage: quill threads get <id>.");
       await callRoute(client, tools, "getThread", { id: maybeValue }, options, [
         "Run `quill threads list --include-meetings`",
       ]);
@@ -351,7 +367,7 @@ async function runCurated(client, args, options) {
   if (domain === "events") {
     if (!actionOrValue || actionOrValue === "list") {
       await callRoute(client, tools, "listEvents", {
-        limit: flags.limit || options.limit,
+        limit: options.limit,
         offset: flags.offset,
         since: flags.after || flags.since,
         until: flags.before || flags.until,
@@ -362,6 +378,7 @@ async function runCurated(client, args, options) {
       return;
     }
     if (actionOrValue === "get") {
+      if (!maybeValue) throw cliError("missing_id", "Missing id. Usage: quill events get <id>.");
       await callRoute(client, tools, "getEvent", { id: maybeValue }, options, [
         "Run `quill events list`",
       ]);
@@ -372,7 +389,7 @@ async function runCurated(client, args, options) {
   if (domain === "templates") {
     if (!actionOrValue || actionOrValue === "list") {
       await callRoute(client, tools, "listTemplates", {
-        limit: flags.limit || options.limit,
+        limit: options.limit,
         offset: flags.offset,
         kind: flags.kind,
         includeDisabled: Boolean(flags.includeDisabled),
@@ -383,6 +400,7 @@ async function runCurated(client, args, options) {
       return;
     }
     if (actionOrValue === "get") {
+      if (!maybeValue) throw cliError("missing_id", "Missing id. Usage: quill templates get <id>.");
       await callRoute(client, tools, "getTemplate", { id: maybeValue }, options, [
         "Run `quill templates list`",
       ]);
@@ -406,8 +424,9 @@ async function callRoute(client, tools, route, values, options, help) {
 
   const args = tool.name === "search_meetings" ? buildSearchMeetingsArgs(values) : buildArgs(tool, normalizeValues(values));
   const result = extractToolResult(await client.callTool(tool.name, args));
-  addPagination(result, values);
+  addPagination(result, values, args.limit);
   printData(withHelp({ tool: tool.name, result }, help), options);
+  if (isErrorResult(result)) process.exitCode = 1;
 }
 
 async function createGeneratedNote(client, tools, values, options) {
@@ -416,7 +435,7 @@ async function createGeneratedNote(client, tools, values, options) {
   }
   const tool = findTool(tools, "createNote");
   if (!tool) throw cliError("tool_route_unavailable", "Could not find Quill MCP create_note tool.");
-  const result = extractToolResult(await client.callTool(tool.name, buildArgs(tool, values)));
+  const result = extractToolResult(await client.callTool(tool.name, buildArgs(tool, values), { mutation: true }));
   printData(withHelp({
     tool: tool.name,
     result,
@@ -424,11 +443,16 @@ async function createGeneratedNote(client, tools, values, options) {
     "Run `quill notes <id>` to read notes for this meeting",
     "Run `quill browse` to continue from the meeting picker",
   ]), options);
+  if (isErrorResult(result)) process.exitCode = 1;
 }
 
-function addPagination(result, values) {
+function addPagination(result, values, effectiveLimit) {
   if (!result || typeof result !== "object") return;
-  const limit = Number.parseInt(values.limit, 10);
+  // Compare against the limit actually sent to the server (which may be capped,
+  // e.g. search_meetings caps at 30), not the user's raw --limit, so a full
+  // page still yields next_offset instead of being silently suppressed.
+  const sent = Number.parseInt(effectiveLimit, 10);
+  const limit = Number.isInteger(sent) && sent > 0 ? sent : Number.parseInt(values.limit, 10);
   if (!Number.isInteger(limit) || limit <= 0) return;
   const offset = Number.parseInt(values.offset || result.offset || 0, 10);
   const collection = ["meetings", "events", "contacts", "templates", "threads", "notes"]
@@ -569,11 +593,20 @@ function parseGlobalOptions(argv, config) {
     else if (arg === "--fields") options.fields = splitCsv(argv[++index] || "");
     else if (arg === "--truncate") options.truncate = Number.parseInt(argv[++index] || "1200", 10);
     else if (arg === "--format" || arg === "-o") {
-      options.format = argv[++index] || "human";
+      const rawFormat = (argv[++index] || "human").toLowerCase();
+      if (!["human", "toon", "json"].includes(rawFormat)) {
+        throw cliError("invalid_format", `Invalid --format value: ${rawFormat}. Use human, toon, or json.`);
+      }
+      options.format = rawFormat;
       if (options.format === "json") options.agent = true;
     }
     else if (arg === "--limit" || arg === "-l") {
-      options.limit = Number.parseInt(argv[++index] || "20", 10);
+      const rawLimit = argv[++index] || "20";
+      const parsedLimit = Number.parseInt(rawLimit, 10);
+      if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
+        throw cliError("invalid_limit", `Invalid --limit value: ${rawLimit}. Provide a positive integer.`);
+      }
+      options.limit = parsedLimit;
       options.limitExplicit = true;
     }
     else args.push(arg);

@@ -83,7 +83,7 @@ Example automation:
 
 ```bash
 quill meetings list --json --today \
-  | jq -r '.result.result.meetings[]?.id' \
+  | jq -r '.result.meetings[]?.id' \
   | while read -r id; do
       quill notes "$id" --json
     done

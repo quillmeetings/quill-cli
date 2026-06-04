@@ -8,7 +8,8 @@ Quill CLI publishes to npm as `@quillmeetings/cli`.
   - repository: `quillmeetings/quill-cli`
   - workflow: `.github/workflows/publish-npm.yml`
   - environment: `npm-release`
-- Node 20+.
+  - The publish workflow runs on Node 22 and upgrades npm to the latest (>= 11.5.1), which OIDC trusted publishing requires.
+- Node 22+.
 - Clean working tree except intentional release changes.
 
 ## Release

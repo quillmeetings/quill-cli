@@ -38,7 +38,7 @@ node bin/quill.js --help
 
 ## Prerequisite: Enable Quill MCP Bridge (In Desktop App)
 
-The CLI talks to Quill through a local MCP bridge that ships with the Quill desktop app. Install Quill desktop, sign in, and enable the MCP server in Quill Settings -> MCP / Integrations.
+The CLI talks to Quill through a local MCP bridge that ships with the Quill desktop app. Don't have Quill yet? Download it from [quillmeetings.com](https://www.quillmeetings.com/download). Install Quill desktop, sign in, and enable the MCP server in Quill Settings -> MCP / Integrations.
 
 The default bridge path is platform-aware:
 
@@ -244,14 +244,14 @@ Use `--json` with `jq` for scripts:
 
 ```bash
 quill meetings list --json --limit 5 \
-  | jq -r '.result.result.meetings[]? | [.id, .title, .date] | @tsv'
+  | jq -r '.result.meetings[]? | [.id, .title, .date] | @tsv'
 ```
 
 Fetch notes for today's meetings:
 
 ```bash
 quill meetings list --json --today \
-  | jq -r '.result.result.meetings[]?.id' \
+  | jq -r '.result.meetings[]?.id' \
   | while read -r id; do
       quill notes "$id" --json
     done
@@ -261,7 +261,7 @@ Search meetings and print IDs:
 
 ```bash
 quill search "customer renewal" --json --limit 10 \
-  | jq -r '.result.result.meetings[]?.id'
+  | jq -r '.result.meetings[]?.id'
 ```
 
 Fail fast in CI or cron:

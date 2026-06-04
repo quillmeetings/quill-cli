@@ -1,10 +1,32 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { McpClient, extractToolResult } from "../src/mcp-client.js";
+import { McpClient, extractToolResult, isErrorResult } from "../src/mcp-client.js";
 
 function toolResult(text) {
   return { content: [{ type: "text", text }] };
 }
+
+test("extractToolResult: isError with JSON payload becomes a stable error envelope", () => {
+  const out = extractToolResult({
+    isError: true,
+    content: [{ type: "text", text: 'Error: {"code":"validation_error","message":"id required"}' }],
+  });
+  assert.deepEqual(out, { error: { code: "validation_error", message: "id required" } });
+  assert.equal(isErrorResult(out), true);
+});
+
+test("extractToolResult: isError with plain text falls back to tool_error code", () => {
+  const out = extractToolResult({ isError: true, content: [{ type: "text", text: "something broke" }] });
+  assert.equal(out.error.code, "tool_error");
+  assert.equal(out.error.message, "something broke");
+  assert.equal(isErrorResult(out), true);
+});
+
+test("isErrorResult: false for normal results", () => {
+  assert.equal(isErrorResult({ meetings: [] }), false);
+  assert.equal(isErrorResult({ error: "not an object" }), false);
+  assert.equal(isErrorResult(null), false);
+});
 
 test("extractToolResult: passes through when result has no content", () => {
   const input = { foo: "bar" };
@@ -21,7 +43,10 @@ test("McpClient.connect: missing node bridge returns doctor hint", async () => {
     () => client.connect(),
     (error) => {
       assert.equal(error.code, "mcp_bridge_not_found");
-      assert.equal(error.message, "Bridge not found. Run `quill doctor`.");
+      assert.match(error.message, /Quill MCP bridge not found/);
+      assert.match(error.message, /quill doctor/);
+      assert.match(error.message, /quillmeetings\.com\/download/);
+      assert.equal(error.details.download_url, "https://www.quillmeetings.com/download");
       return true;
     }
   );
