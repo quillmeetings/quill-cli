@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { findTool, buildArgs } from "../src/tool-router.js";
+import { findTool, buildArgs, toolSupportsOffset } from "../src/tool-router.js";
 
 function tool(name, description = "", properties = undefined) {
   const inputSchema = properties ? { properties } : undefined;
@@ -67,6 +67,16 @@ test("findTool: createNote resolves through any of its aliases", () => {
   assert.equal(a.name, "create_note");
   assert.equal(b.name, "note_create");
   assert.equal(c.name, "create_meeting_note");
+});
+
+test("toolSupportsOffset: true when the schema declares offset or skip", () => {
+  assert.equal(toolSupportsOffset(tool("list_things", "", { offset: {} })), true);
+  assert.equal(toolSupportsOffset(tool("list_things", "", { skip: {} })), true);
+});
+
+test("toolSupportsOffset: false without an offset-style property or schema", () => {
+  assert.equal(toolSupportsOffset(tool("list_things", "", { limit: {} })), false);
+  assert.equal(toolSupportsOffset({ name: "tool_without_schema" }), false);
 });
 
 test("buildArgs: keeps key as-is when the schema already declares it", () => {

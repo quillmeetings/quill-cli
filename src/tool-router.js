@@ -62,6 +62,13 @@ export function findTool(tools, routeName) {
   return normalizedTools.find((tool) => words.every((word) => tool.searchable.includes(word)));
 }
 
+// True when the tool's schema declares an offset-style paging parameter, so a
+// next_offset hint in the output is actually actionable on a follow-up call.
+export function toolSupportsOffset(tool) {
+  const properties = tool?.inputSchema?.properties || {};
+  return ["offset", "skip"].some((key) => Object.hasOwn(properties, key));
+}
+
 export function buildArgs(tool, values) {
   const schema = tool.inputSchema || {};
   const properties = schema.properties || {};
