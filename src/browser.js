@@ -434,7 +434,7 @@ function HighlightedText({ text, query }) {
   );
 }
 
-function windowRows(rows, selected, maxRows) {
+export function windowRows(rows, selected, maxRows) {
   if (rows.length <= maxRows) return { start: 0, end: rows.length, rows: rows.map((meeting, index) => ({ meeting, index })) };
   const half = Math.floor(maxRows / 2);
   const start = Math.max(0, Math.min(selected - half, rows.length - maxRows));
@@ -446,7 +446,7 @@ function windowRows(rows, selected, maxRows) {
   };
 }
 
-function listColumns(width) {
+export function listColumns(width) {
   const usable = Math.max(60, width - 2);
   const date = 9;
   const duration = 7;
@@ -529,7 +529,7 @@ function actionLabel(action) {
   return "Meeting";
 }
 
-function formatBrowsePanel(action, meeting, result) {
+export function formatBrowsePanel(action, meeting, result) {
   if (action === "view") return formatMeetingOverviewPanel(result, meeting);
   if (action === "notes") return formatTextPanel(result, "No notes found for this meeting.");
   if (action === "transcript") return formatTextPanel(result, "No transcript found for this meeting.");
@@ -540,7 +540,7 @@ function formatBrowsePanel(action, meeting, result) {
 
 async function loadMeetingOverview(client, tools, meeting) {
   const meetingResult = await callPanelTool(client, tools, "view", meeting);
-  let minutesResult = null;
+  let minutesResult;
   try {
     minutesResult = await callPanelTool(client, tools, "notes", meeting);
   } catch {
@@ -554,7 +554,7 @@ async function callPanelTool(client, tools, action, meeting) {
   return extractToolResult(await client.callTool(tool.name, args));
 }
 
-function buildPanelCall(tools, action, meeting) {
+export function buildPanelCall(tools, action, meeting) {
   const route = action === "notes"
     ? "getNotes"
     : action === "transcript"
@@ -604,7 +604,7 @@ function formatMeetingPanel(result, fallbackMeeting) {
   return rows.map(([label, value]) => `${label.padEnd(12)} ${value}`).join("\n");
 }
 
-function formatTextPanel(result, emptyMessage) {
+export function formatTextPanel(result, emptyMessage) {
   if (!result) return emptyMessage;
   if (typeof result === "string") return cleanText(result) || emptyMessage;
   if (typeof result.message === "string") return cleanText(result.message) || emptyMessage;
@@ -620,7 +620,7 @@ function formatTextPanel(result, emptyMessage) {
   return renderRecord(result) || emptyMessage;
 }
 
-function renderRecord(record) {
+export function renderRecord(record) {
   if (!record || typeof record !== "object") return cleanText(String(record || ""));
   const body = record.body || record.text || record.content || record.markdown || record.message;
   const title = record.title || record.name;
@@ -631,7 +631,7 @@ function renderRecord(record) {
     .join("\n");
 }
 
-function cleanText(value) {
+export function cleanText(value) {
   return String(value)
     .replace(/^<ToolResponse>\s*/s, "")
     .replace(/\s*<\/ToolResponse>$/s, "")
@@ -647,7 +647,7 @@ function cleanText(value) {
     .trim();
 }
 
-function truncatePanel(value, limit = 5000) {
+export function truncatePanel(value, limit = 5000) {
   if (value.length <= limit) return value;
   return `${value.slice(0, limit)}\n... (truncated in browse view; use command with --full for complete output)`;
 }
@@ -678,7 +678,7 @@ function formatLongDate(value) {
   });
 }
 
-function splitList(value) {
+export function splitList(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value;
   return String(value).split(",").map((item) => item.trim()).filter(Boolean);
