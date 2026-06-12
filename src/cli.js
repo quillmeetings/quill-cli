@@ -4,7 +4,7 @@ import { DOWNLOAD_URL, configPath, defaultBridgePath, ensureConfigFile, getConfi
 import { CLI_VERSION, runDoctorChecks } from "./doctor.js";
 import { extractToolResult, isErrorResult, McpClient } from "./mcp-client.js";
 import { printData, structuredError, truncateText, withHelp } from "./format.js";
-import { buildArgs, findTool } from "./tool-router.js";
+import { buildArgs, findTool, toolSupportsOffset } from "./tool-router.js";
 
 const ACTIONS_PROMPT = "Extract action items from this meeting. Return only concrete tasks. For each item include owner if mentioned, due date if mentioned, status or uncertainty, and brief source context. If there are no clear action items, say so explicitly.";
 const FOLLOWUP_PROMPT = "Draft a concise follow-up note for this meeting. Include a short recap, decisions, open questions, action items, and a friendly next-step section. Keep it practical and ready to send.";
@@ -232,6 +232,7 @@ async function runCurated(client, args, options) {
     if (!actionOrValue || actionOrValue === "list") {
       await callRoute(client, tools, "listMeetings", {
         limit: options.limit,
+        offset: flags.offset,
         since: flags.since,
         until: flags.until,
         today: flags.today,
@@ -312,6 +313,7 @@ async function runCurated(client, args, options) {
     await callRoute(client, tools, "search", {
       query: parsed.positionals.join(" "),
       limit: options.limit,
+      offset: flags.offset,
       since: flags.since,
       until: flags.until,
       today: flags.today,
@@ -424,7 +426,9 @@ async function callRoute(client, tools, route, values, options, help) {
 
   const args = tool.name === "search_meetings" ? buildSearchMeetingsArgs(values) : buildArgs(tool, normalizeValues(values));
   const result = extractToolResult(await client.callTool(tool.name, args));
-  addPagination(result, values, args.limit);
+  // Only advertise next_offset when the tool can actually accept an offset on
+  // the follow-up call; otherwise the hint is a dead end for agents.
+  if (toolSupportsOffset(tool)) addPagination(result, values, args.limit);
   printData(withHelp({ tool: tool.name, result }, help), options);
   if (isErrorResult(result)) process.exitCode = 1;
 }
@@ -446,7 +450,7 @@ async function createGeneratedNote(client, tools, values, options) {
   if (isErrorResult(result)) process.exitCode = 1;
 }
 
-function addPagination(result, values, effectiveLimit) {
+export function addPagination(result, values, effectiveLimit) {
   if (!result || typeof result !== "object") return;
   // Compare against the limit actually sent to the server (which may be capped,
   // e.g. search_meetings caps at 30), not the user's raw --limit, so a full
@@ -468,11 +472,15 @@ function normalizeValues(values) {
   return normalized;
 }
 
-function buildSearchMeetingsArgs(values) {
+export function buildSearchMeetingsArgs(values) {
   values = applyTimeFlags(values);
   const args = {};
   if (values.query) args.query = values.query;
   if (values.limit) args.limit = Math.min(Number.parseInt(values.limit, 10) || 10, 30);
+  if (values.offset) {
+    const offset = Number.parseInt(values.offset, 10);
+    if (Number.isInteger(offset) && offset > 0) args.offset = offset;
+  }
 
   const filter = {};
   if (values.since) filter.after = parseDateCutoff(values.since);
@@ -527,7 +535,7 @@ async function browseMeetings(client, tools, options, values, pickerOptions = {}
   return runMeetingBrowser(client, tools, meetings, options, pickerOptions, { searchMeetings });
 }
 
-function applyTimeFlags(values) {
+export function applyTimeFlags(values) {
   const normalized = { ...values };
   if (normalized.today) {
     normalized.since = startOfDay(0);
@@ -539,14 +547,19 @@ function applyTimeFlags(values) {
   return normalized;
 }
 
-function parseDateCutoff(value) {
+export function parseDateCutoff(value) {
   const phrase = String(value).trim().toLowerCase();
   if (phrase === "today") return startOfDay(0);
   if (phrase === "yesterday") return startOfDay(-1);
   if (phrase === "last week") return new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   if (phrase === "last month") return new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   if (/^\d{4}-\d{2}-\d{2}T/.test(value)) return value;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${value}T00:00:00Z`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    // A bare date means midnight in the user's timezone, not UTC, so
+    // `--since 2026-06-10` lines up with the local calendar.
+    const [year, month, day] = value.split("-").map(Number);
+    return new Date(year, month - 1, day).toISOString();
+  }
 
   const match = String(value).match(/^(\d+)([dwmy])$/);
   if (!match) return value;
@@ -558,13 +571,15 @@ function parseDateCutoff(value) {
 }
 
 function startOfDay(offsetDays) {
+  // Day boundaries follow the user's local timezone: `--today` means "since I
+  // woke up", not "since midnight UTC", which is hours off for most users.
   const date = new Date();
-  date.setUTCHours(0, 0, 0, 0);
-  date.setUTCDate(date.getUTCDate() + offsetDays);
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + offsetDays);
   return date.toISOString();
 }
 
-function parseGlobalOptions(argv, config) {
+export function parseGlobalOptions(argv, config) {
   const args = [];
   const options = {
     format: config.output.format || "human",
@@ -620,7 +635,7 @@ function parseGlobalOptions(argv, config) {
   return options;
 }
 
-function parseFlags(args) {
+export function parseFlags(args) {
   const flags = {};
   const positionals = [];
   for (let index = 0; index < args.length; index++) {
@@ -670,7 +685,7 @@ Usage:
   quill
   quill init
   quill doctor
-  quill meetings list [--limit 20] [--since 7d] [--search text]
+  quill meetings list [--limit 20] [--offset n] [--since 7d] [--search text]
   quill browse [--limit 20] [--search text]
   quill meetings browse [--limit 20] [--search text]
   quill meetings view <id>
@@ -683,7 +698,7 @@ Usage:
   quill actions <id>
   quill followup <id>
   quill transcript <id> [--full]
-  quill search "<query>" [--limit 20] [--since "last week"] [--today]
+  quill search "<query>" [--limit 20] [--offset n] [--since "last week"] [--today]
   quill contacts list [--search text]
   quill threads list [--include-meetings]
   quill events list [--limit 20]
@@ -717,7 +732,7 @@ Environment:
 function subcommandHelp(topic) {
   const help = {
     meetings: `Usage:
-  quill meetings list [--limit 20] [--since 7d] [--today] [--fields id,title,date,duration]
+  quill meetings list [--limit 20] [--offset n] [--since 7d] [--today] [--fields id,title,date,duration]
   quill meetings browse [--limit 20] [--search text]
   quill meetings view <id>
 
@@ -784,7 +799,7 @@ Notes:
   Transcripts can be long. Default output is truncated; use \`--full\` when needed.
 `,
     search: `Usage:
-  quill search "<query>" [--limit 20] [--since 7d] [--today] [--fields id,title,date,duration]
+  quill search "<query>" [--limit 20] [--offset n] [--since 7d] [--today] [--fields id,title,date,duration]
 `,
     mcp: `Usage:
   quill mcp tools
@@ -806,7 +821,7 @@ Examples:
   return help[topic];
 }
 
-function normalizeCommandArgs(args) {
+export function normalizeCommandArgs(args) {
   if (args[0] === "ls") return ["meetings", "list", ...args.slice(1)];
   if (args[0] === "v" || args[0] === "view") return ["meetings", "view", ...args.slice(1)];
   if (args[0] === "n") return ["notes", ...args.slice(1)];
