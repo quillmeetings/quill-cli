@@ -279,7 +279,7 @@ export function extractToolResult(result) {
 
 function toErrorResult(text) {
   const stripped = String(text).replace(/^Error:\s*/i, "").trim();
-  let payload = null;
+  let payload;
   try {
     payload = JSON.parse(stripped);
   } catch {

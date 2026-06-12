@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest a new command, flag, or behavior
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the workflow, not just the feature. Who is it for — humans at the terminal, agents/scripts, or both?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      placeholder: |
+        A `quill ...` command/flag that ...
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Including whether `quill mcp call` covers it today.

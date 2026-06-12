@@ -31,7 +31,7 @@ export async function runCli(argv) {
   }
 
   if (command === "init") {
-    await runInit(options, config);
+    await runInit(options);
     return;
   }
 
@@ -134,7 +134,7 @@ async function runConfig(args, options, config) {
   throw cliError("unknown_config_command", `Unknown config command: ${command}`);
 }
 
-async function runInit(options, config) {
+async function runInit(options) {
   const result = ensureConfigFile();
   const doctor = await runDoctorChecks(loadConfig());
   const setup = withHelp({

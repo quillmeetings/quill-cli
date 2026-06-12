@@ -1,0 +1,38 @@
+name: Bug report
+description: Something in Quill CLI doesn't work as documented
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you run, what did you expect, and what did you get instead?
+      placeholder: |
+        Ran `quill meetings list --today` and got ...
+        Expected ...
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `quill doctor --json`
+      description: Redact anything sensitive (paths are usually fine).
+      render: json
+  - type: input
+    id: cli-version
+    attributes:
+      label: CLI version (`quill --version`)
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS and Node version
+      placeholder: macOS 15.5, Node 22.11.0
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Config overrides, whether `QUILL_DEBUG=1` shows bridge errors, etc.
