@@ -5,6 +5,11 @@ import { DOWNLOAD_URL } from "./config.js";
 import { CLI_VERSION } from "./version.js";
 
 const DEFAULT_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
+// Hard ceiling for the configurable buffer cap. A poisoned or non-numeric
+// max_buffer_bytes must never be able to disable the limit (Number.parseInt
+// can yield NaN, and `size <= NaN` is always false, which would silently
+// remove the cap and allow unbounded memory growth from a misbehaving bridge).
+const MAX_ALLOWED_BUFFER_BYTES = 64 * 1024 * 1024;
 
 // Tools that generate content can take much longer than a read, so they use
 // mcp.mutation_timeout_ms. Keyed on every name `findTool` may resolve to (not
@@ -15,7 +20,7 @@ const MUTATION_TOOL_NAMES = new Set(["create_note", "note_create", "create_meeti
 export class McpClient {
   constructor(config) {
     this.config = config;
-    this.maxBufferBytes = Number.parseInt(config.max_buffer_bytes || String(DEFAULT_MAX_BUFFER_BYTES), 10);
+    this.maxBufferBytes = clampBufferBytes(config.max_buffer_bytes);
     this.nextId = 1;
     this.pending = new Map();
     this.buffer = Buffer.alloc(0);
@@ -271,7 +276,7 @@ export function extractToolResult(result) {
   // fail-fast) can detect failure instead of treating it as success.
   if (result.isError) return toErrorResult(text);
   try {
-    return JSON.parse(text);
+    return sanitizeJsonDirectives(JSON.parse(text));
   } catch {
     return parseQuillToolResponse(text);
   }
@@ -286,20 +291,31 @@ function toErrorResult(text) {
     payload = null;
   }
   if (payload && typeof payload === "object") {
-    return {
+    return markToolError({
       error: {
         code: payload.code || "tool_error",
         message: payload.message || stripped,
         ...(payload.details ?? payload.data ? { details: payload.details ?? payload.data } : {}),
       },
-    };
+    });
   }
-  return { error: { code: "tool_error", message: stripped || "The Quill MCP tool returned an error." } };
+  return markToolError({ error: { code: "tool_error", message: stripped || "The Quill MCP tool returned an error." } });
 }
 
-// True when extractToolResult produced a normalized error envelope.
+// Tag a genuine error envelope with a non-enumerable marker. Failure is decided
+// by the authoritative MCP `isError` flag, not by the shape of parsed content,
+// so a normal tool whose data merely contains an `error`-shaped object can no
+// longer flip the CLI exit code to failure. Non-enumerable keeps rendered and
+// JSON output byte-identical.
+function markToolError(result) {
+  Object.defineProperty(result, "__quillToolError", { value: true, enumerable: false });
+  return result;
+}
+
+// True when extractToolResult produced a normalized error envelope from an
+// actual MCP tool/transport error (isError), not from arbitrary response data.
 export function isErrorResult(result) {
-  return Boolean(result && typeof result === "object" && result.error && typeof result.error === "object");
+  return Boolean(result && typeof result === "object" && result.__quillToolError === true);
 }
 
 function parseQuillToolResponse(text) {
@@ -362,10 +378,17 @@ function childText(text, tag) {
 
 function parseAttributes(text) {
   const attrs = {};
-  const attrPattern = /([A-Za-z_:][A-Za-z0-9_:.-]*)="([^"]*)"/g;
+  // Sticky tokenizer kept strictly linear: alternative 1 matches a full
+  // name="value" attribute, alternative 2 atomically skips a run of
+  // attribute-ish characters that did NOT form an attribute, and alternative 3
+  // skips any single other character. Without alternative 2, a long run of
+  // identifier characters not followed by `="` is re-scanned from every offset
+  // by the previous global regex, which is O(n^2) on attacker-influenced tag
+  // attributes (a 200KB run took ~37s); the atomic skip makes it O(n).
+  const tokenPattern = /([A-Za-z_:][A-Za-z0-9_:.-]*)="([^"]*)"|[A-Za-z0-9_:.="-]+|[\s\S]/y;
   let match;
-  while ((match = attrPattern.exec(text)) !== null) {
-    attrs[match[1]] = decodeXml(match[2]);
+  while ((match = tokenPattern.exec(text)) !== null) {
+    if (match[1] !== undefined) attrs[match[1]] = decodeXml(match[2]);
   }
   return attrs;
 }
@@ -397,10 +420,52 @@ function parseElementList(text, spec) {
 }
 
 function decodeXml(value) {
-  return String(value)
+  const decoded = String(value)
     .replaceAll("&quot;", "\"")
     .replaceAll("&apos;", "'")
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")
     .replaceAll("&amp;", "&");
+  // Strip injected agent directives AFTER decoding: a value encoded as
+  // &lt;system-instruction&gt;...&lt;/system-instruction&gt; would otherwise be
+  // reconstructed into a literal directive here and handed to a downstream
+  // agent verbatim. Runs last so encoded markup that just became literal is
+  // still neutralized.
+  return neutralizeDirectives(decoded);
+}
+
+// Remove embedded prompt-injection directives that MCP response content
+// (meeting titles, transcripts, contact names, etc., which can originate from
+// other participants/calendar invites/emails) could smuggle to an agent.
+// Case- and attribute-tolerant; strips complete blocks first, then stray tags.
+export function neutralizeDirectives(value) {
+  return String(value)
+    .replace(/<\s*system-instruction\b[^>]*>[\s\S]*?<\s*\/\s*system-instruction\s*>/gi, "")
+    .replace(/<\s*\/?\s*system-instruction\b[^>]*>/gi, "");
+}
+
+// Neutralize directives in every string of a parsed JSON tool result so the
+// agent/JSON output path gets the same protection as the bespoke-XML path.
+// Iterative (explicit stack) so deeply nested JSON cannot overflow the call
+// stack. Mutates in place; only touches string leaves.
+function sanitizeJsonDirectives(root) {
+  if (typeof root === "string") return neutralizeDirectives(root);
+  if (!root || typeof root !== "object") return root;
+  const stack = [root];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    const keys = Array.isArray(node) ? node.keys() : Object.keys(node);
+    for (const key of keys) {
+      const value = node[key];
+      if (typeof value === "string") node[key] = neutralizeDirectives(value);
+      else if (value && typeof value === "object") stack.push(value);
+    }
+  }
+  return root;
+}
+
+function clampBufferBytes(raw) {
+  const requested = Number.parseInt(raw ?? DEFAULT_MAX_BUFFER_BYTES, 10);
+  if (!Number.isInteger(requested) || requested <= 0) return DEFAULT_MAX_BUFFER_BYTES;
+  return Math.min(requested, MAX_ALLOWED_BUFFER_BYTES);
 }

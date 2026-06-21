@@ -100,8 +100,21 @@ export function getConfigValue(config, key) {
   return key.split(".").reduce((value, part) => value?.[part], config);
 }
 
+const FORBIDDEN_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+
 export function setConfigValue(config, key, rawValue) {
   const parts = key.split(".");
+  // Reject prototype-polluting key segments. Without this, `quill config set
+  // __proto__.<x> <y>` walks cursor into Object.prototype and assigns onto it,
+  // polluting every object in the process.
+  for (const part of parts) {
+    if (FORBIDDEN_KEYS.has(part)) {
+      const error = new Error(`Invalid config key segment: ${part}`);
+      error.code = "invalid_config_key";
+      error.exitCode = 1;
+      throw error;
+    }
+  }
   let cursor = config;
   for (const part of parts.slice(0, -1)) {
     if (!cursor[part] || typeof cursor[part] !== "object" || Array.isArray(cursor[part])) cursor[part] = {};
@@ -126,6 +139,10 @@ function parseConfigValue(value) {
 function mergeConfig(base, override) {
   const result = { ...base };
   for (const [key, value] of Object.entries(override || {})) {
+    // Skip prototype-polluting keys from a tampered/poisoned config file so a
+    // literal "__proto__"/"constructor"/"prototype" entry can never rebind a
+    // prototype during the merge.
+    if (FORBIDDEN_KEYS.has(key)) continue;
     if (isPlainObject(value) && isPlainObject(base[key])) result[key] = mergeConfig(base[key], value);
     else result[key] = value;
   }
