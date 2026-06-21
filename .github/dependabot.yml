@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # Keep the SHA-pinned GitHub Actions current via reviewed PRs so the pins do
+  # not silently rot once they stop tracking a mutable major-version tag.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  # Surface vulnerable/outdated npm dependencies (including transitive fixes
+  # applied through overrides) for review.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly

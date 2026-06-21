@@ -488,6 +488,10 @@ function copyToClipboard(text) {
     return Promise.reject(error);
   }
 
+  // Final sanitization at the sink: the metadata panel is assembled without
+  // cleanText, so strip terminal control sequences here too before anything
+  // reaches the system clipboard.
+  const safeText = stripTerminalControls(text);
   return new Promise((resolve, reject) => {
     const child = spawn(command.command, command.args, { stdio: ["pipe", "ignore", "pipe"] });
     let stderr = "";
@@ -507,7 +511,7 @@ function copyToClipboard(text) {
       error.code = "copy_failed";
       reject(error);
     });
-    child.stdin.end(text);
+    child.stdin.end(safeText);
   });
 }
 
@@ -631,20 +635,43 @@ export function renderRecord(record) {
     .join("\n");
 }
 
-export function cleanText(value) {
+// Strip terminal escape/control sequences (ANSI CSI, OSC, bare C0/C1), keeping
+// tab and newline. MCP content shown in the TUI or copied to the clipboard can
+// otherwise carry sequences that spoof the display or land in the clipboard.
+export function stripTerminalControls(value) {
+  /* eslint-disable no-control-regex -- intentionally matching control bytes to remove them */
   return String(value)
-    .replace(/^<ToolResponse>\s*/s, "")
-    .replace(/\s*<\/ToolResponse>$/s, "")
-    .replace(/<system-instruction>[\s\S]*?<\/system-instruction>/g, "")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replaceAll("&quot;", "\"")
-    .replaceAll("&apos;", "'")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&amp;", "&")
-    .trim();
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")     // OSC ... BEL / ST
+    .replace(/\x1b[@-Z\\-_]|\x1b\[[0-?]*[ -/]*[@-~]/g, "") // CSI and 2-char ESC
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, ""); // bare C0/C1 controls
+  /* eslint-enable no-control-regex */
+}
+
+export function cleanText(value) {
+  return stripTerminalControls(
+    String(value)
+      .replace(/^<ToolResponse>\s*/s, "")
+      .replace(/\s*<\/ToolResponse>$/s, "")
+      // Remove injected agent directives in BOTH literal and entity-encoded
+      // form (the encoded form is stripped here, before decoding, so it cannot
+      // be reconstructed into a live <system-instruction> block downstream).
+      // Tags are stripped before entities are decoded, so legitimate encoded
+      // angle brackets in real content (e.g. "deploy &lt;30 min&gt;") survive.
+      .replace(/<\s*system-instruction\b[^>]*>[\s\S]*?<\s*\/\s*system-instruction\s*>/gi, "")
+      .replace(/&lt;\s*system-instruction\b[\s\S]*?&lt;\s*\/\s*system-instruction\s*&gt;/gi, "")
+      .replace(/<[^>]+>/g, "")
+      .replace(/\\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .replaceAll("&quot;", "\"")
+      .replaceAll("&apos;", "'")
+      .replaceAll("&lt;", "<")
+      .replaceAll("&gt;", ">")
+      .replaceAll("&amp;", "&")
+      // Backstop: drop any directive marker a mixed/odd encoding reconstructed
+      // during entity decoding. Targets only the marker, so it never eats
+      // legitimate decoded markup.
+      .replace(/<\s*\/?\s*system-instruction\b[^>]*>/gi, ""),
+  ).trim();
 }
 
 export function truncatePanel(value, limit = 5000) {

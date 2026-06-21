@@ -41,7 +41,7 @@ export function toHuman(data) {
     }
   }
 
-  if (typeof result.message === "string") return result.message;
+  if (typeof result.message === "string") return stripControl(result.message);
   return null;
 }
 
@@ -111,6 +111,22 @@ export function toToon(value, indent = 0, key = null) {
   return key ? `${pad}${key}: ${scalar(value)}` : `${pad}${scalar(value)}`;
 }
 
+// Strip terminal control/escape sequences from strings rendered to a TTY.
+// MCP response content (titles, transcripts, notes, contact names) can carry
+// ANSI/OSC/C0/C1 sequences that would otherwise spoof the UI, hide content, or
+// forge hyperlinks when written to the terminal. Applied only on the human and
+// toon paths; the JSON path stays byte-faithful (JSON.stringify already escapes
+// control chars to \uXXXX, so a JSON consumer is not exposed). Tabs and
+// newlines are preserved.
+export function stripControl(value) {
+  /* eslint-disable no-control-regex -- intentionally matching control bytes to remove them */
+  return String(value)
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")     // OSC ... BEL / ST
+    .replace(/\x1b[@-Z\\-_]|\x1b\[[0-?]*[ -/]*[@-~]/g, "") // CSI and 2-char ESC
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, ""); // bare C0/C1 controls
+  /* eslint-enable no-control-regex */
+}
+
 export function structuredError(code, message, details = undefined) {
   const error = { code, message };
   if (details !== undefined) error.details = details;
@@ -147,7 +163,7 @@ function isObject(value) {
 function scalar(value) {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") {
-    const normalized = value.replace(/\r?\n/g, "\\n");
+    const normalized = stripControl(value).replace(/\r?\n/g, "\\n");
     return /[,"\n]/.test(normalized) ? JSON.stringify(normalized) : normalized;
   }
   if (typeof value === "boolean") return value ? "true" : "false";
@@ -195,16 +211,16 @@ function toTable(rows) {
 }
 
 function truncateCell(value) {
-  const text = value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ");
+  const text = value === null || value === undefined ? "" : stripControl(String(value)).replace(/\s+/g, " ");
   return text.length > 48 ? `${text.slice(0, 45)}...` : text;
 }
 
 function formatHumanValue(value) {
   if (value === true) return "yes";
   if (value === false) return "no";
-  if (Array.isArray(value)) return value.join(", ");
-  if (isObject(value)) return JSON.stringify(value);
-  return value === null || value === undefined ? "" : String(value);
+  if (Array.isArray(value)) return stripControl(value.join(", "));
+  if (isObject(value)) return stripControl(JSON.stringify(value));
+  return value === null || value === undefined ? "" : stripControl(String(value));
 }
 
 function humanLabel(value) {
