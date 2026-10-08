@@ -1,6 +1,6 @@
 {
   "name": "@quillmeetings/cli",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Human-friendly and agent-ready CLI for Quill Meetings backed by the Quill MCP server.",
   "type": "module",
   "files": [
