@@ -5,6 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-08
+
+Verified compatible with Quill desktop 2.9.2.
+
 ### Added
 
 - CI workflow running syntax check, lint, and tests on every push and pull request (Node 20 and 22).
