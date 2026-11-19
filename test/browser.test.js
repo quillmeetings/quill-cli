@@ -8,6 +8,7 @@ import {
   listColumns,
   renderRecord,
   splitList,
+  throwOnErrorResult,
   truncatePanel,
   windowRows,
 } from "../src/browser.js";
@@ -158,4 +159,16 @@ test("splitList: handles strings, arrays, and falsy values", () => {
   assert.deepEqual(splitList(["a", "b"]), ["a", "b"]);
   assert.deepEqual(splitList(""), []);
   assert.deepEqual(splitList(null), []);
+});
+
+test("formatTextPanel: parsed message keeps literal angle brackets and entity text", () => {
+  assert.equal(formatTextPanel({ message: "Array<string> and &lt; stay\\nnext" }, "empty"), "Array<string> and &lt; stay\nnext");
+});
+
+test("throwOnErrorResult: error envelope throws with its code and message", () => {
+  assert.throws(
+    () => throwOnErrorResult({ error: { code: "not_found", message: "Note not found" } }),
+    (error) => error.code === "not_found" && error.message === "Note not found",
+  );
+  assert.deepEqual(throwOnErrorResult({ message: "ok" }), { message: "ok" });
 });

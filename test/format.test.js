@@ -218,3 +218,8 @@ test("shapeForOutput: thread defaults match the fields Quill sends", () => {
   const out = shapeForOutput({ threads: [{ id: "th1", name: "Roadmap", meetings_count: "3", created_at: "2026-11-01", url: "quill://thread/th1" }] });
   assert.deepEqual(out.threads[0], { id: "th1", name: "Roadmap", meetings_count: "3", created_at: "2026-11-01" });
 });
+
+test("shapeForOutput: thread defaults keep title and updated_at when rows carry them", () => {
+  const out = shapeForOutput({ threads: [{ id: "th1", title: "Roadmap", updated_at: "2026-11-01", url: "quill://thread/th1" }] });
+  assert.deepEqual(out.threads[0], { id: "th1", title: "Roadmap", updated_at: "2026-11-01" });
+});

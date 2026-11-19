@@ -266,7 +266,7 @@ function defaultFieldsFor(key) {
     events: ["id", "title", "start", "end"],
     contacts: ["id", "name", "email"],
     templates: ["id", "name", "kind", "verb"],
-    threads: ["id", "name", "meetings_count", "created_at"],
+    threads: ["id", "name", "title", "meetings_count", "created_at", "updated_at"],
     notes: ["id", "title", "template_id", "created_at"],
     tools: ["name", "description"],
   };
