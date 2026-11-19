@@ -201,3 +201,27 @@ test("container with no items still returns the parsed shape with empty array", 
   assert.equal(out.count, 0);
   assert.deepEqual(out.contacts, []);
 });
+
+test("<error code> tag in a non-isError response becomes an error envelope", () => {
+  const out = extractToolResult(toolResult('<ToolResponse>\n<error code="not_found">Note &quot;x&quot; not found</error>\n</ToolResponse>'));
+  assert.deepEqual(out, { error: { code: "not_found", message: 'Note "x" not found' } });
+  assert.equal(isErrorResult(out), true);
+});
+
+test("escaped <error> text inside content is not treated as a failure", () => {
+  const out = extractToolResult(toolResult('<ToolResponse>They said &lt;error code="x"&gt;oops&lt;/error&gt;</ToolResponse>'));
+  assert.equal(isErrorResult(out), false);
+});
+
+test("notes lift the <title> child into the item", () => {
+  const out = extractToolResult(toolResult(
+    '<ToolResponse><notes count="2"><note id="n1" template_id="t1">\n<title>Recap &amp; next steps</title>\n</note><note id="n2" kind="custom" /></notes></ToolResponse>'
+  ));
+  assert.equal(out.notes[0].title, "Recap & next steps");
+  assert.equal(out.notes[1].title, undefined);
+});
+
+test("message text has XML entities decoded after tags are stripped", () => {
+  const out = extractToolResult(toolResult("<ToolResponse><transcript>We don&apos;t ship if a &lt; b &amp;&amp; c</transcript></ToolResponse>"));
+  assert.deepEqual(out, { message: "We don't ship if a < b && c" });
+});

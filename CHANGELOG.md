@@ -5,6 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `--fields` with five or more names no longer drops the extra columns in TOON (`--agent`) and human table output. TOON lists now keep every field; the human table stays at four columns unless `--fields` is passed.
+- Failures Quill reports as an `<error code>` tag in a normal response (for example `update_note` on a missing note) now produce the error envelope and exit code 1 instead of a success message.
+- `quill threads list` shows `name`, `meetings_count`, and `created_at` instead of only `id`.
+- Note lists include each note's `title`.
+- Transcript, notes, and other message text no longer contain raw XML entities such as `&apos;`.
+
 ## [0.2.0] - 2026-10-08
 
 Verified compatible with Quill desktop 2.9.2.
