@@ -310,6 +310,13 @@ function parseQuillToolResponse(text) {
     .replace(/\s*<\/ToolResponse>$/s, "")
     .trim();
 
+  // Quill reports some failures as an <error code> tag in an otherwise normal
+  // response (no isError); surface them as the same error envelope.
+  const failure = inner.match(/^<error\s+code="([^"]*)"[^>]*>([\s\S]*?)<\/error>/);
+  if (failure) {
+    return { error: { code: decodeXml(failure[1]) || "tool_error", message: decodeXml(failure[2].trim()) } };
+  }
+
   const meetings = parseMeetings(inner);
   if (meetings.length > 0) {
     const result = { count: meetings.length, meetings };
@@ -323,13 +330,13 @@ function parseQuillToolResponse(text) {
     { container: "events", item: "event", key: "events" },
     { container: "templates", item: "template", key: "templates", childFields: ["description"] },
     { container: "threads", item: "thread", key: "threads" },
-    { container: "notes", item: "note", key: "notes" },
+    { container: "notes", item: "note", key: "notes", childFields: ["title"] },
   ]) {
     const parsed = parseElementList(inner, spec);
     if (parsed) return parsed;
   }
 
-  const message = inner.replace(/<[^>]+>/g, "").trim();
+  const message = decodeXml(inner.replace(/<[^>]+>/g, "")).trim();
   return message ? { message } : { text: inner };
 }
 

@@ -7,7 +7,7 @@ export function printData(data, options = {}) {
   }
 
   if (format === "human" || options.human) {
-    const rendered = toHuman(data);
+    const rendered = toHuman(data, options);
     if (rendered) {
       process.stdout.write(`${rendered}\n`);
       return;
@@ -24,7 +24,7 @@ export function shapeForOutput(data, options = {}) {
   return cloned;
 }
 
-export function toHuman(data) {
+export function toHuman(data, options = {}) {
   const result = data?.result || data;
   if (!result || typeof result !== "object") return null;
 
@@ -35,9 +35,10 @@ export function toHuman(data) {
   for (const key of ["meetings", "events", "contacts", "templates", "threads", "notes"]) {
     if (Array.isArray(result[key])) {
       const rows = result[key].map((item) => humanizeRow(item));
+      const explicit = options.fields?.some((field) => rows.some((row) => Object.hasOwn(row, field)));
       const title = `${capitalize(key)} (${result.count ?? rows.length})`;
       const help = Array.isArray(data.help) ? `\n\n${data.help.join("\n")}` : "";
-      return `${title}\n${toTable(rows)}${help}`;
+      return `${title}\n${toTable(rows, explicit ? Infinity : 4)}${help}`;
     }
   }
 
@@ -129,11 +130,11 @@ export function truncateText(value, limit = 1200) {
   return `${value.slice(0, limit)}... (truncated, ${value.length} chars total; use --full to see complete text)`;
 }
 
-function collectFields(items) {
+function collectFields(items, limit = Infinity) {
   const preferred = ["id", "title", "name", "date", "start", "duration", "status"];
   const keys = [...new Set(items.flatMap((item) => Object.keys(item)))];
   const sorted = [...preferred.filter((key) => keys.includes(key)), ...keys.filter((key) => !preferred.includes(key))];
-  return sorted.slice(0, 4);
+  return sorted.slice(0, limit);
 }
 
 function isFlatObject(value) {
@@ -156,7 +157,7 @@ function scalar(value) {
 
 function humanizeRow(item) {
   const row = { ...item };
-  for (const key of ["date", "start", "end", "started_at", "created_at"]) {
+  for (const key of ["date", "start", "end", "started_at", "created_at", "updated_at"]) {
     if (row[key]) row[key] = relativeTime(row[key]);
   }
   return row;
@@ -184,9 +185,9 @@ function relativeTime(value) {
   return seconds < 0 ? "just now" : "now";
 }
 
-function toTable(rows) {
+function toTable(rows, limit) {
   if (rows.length === 0) return "(none)";
-  const fields = collectFields(rows);
+  const fields = collectFields(rows, limit);
   const widths = fields.map((field) => Math.max(field.length, ...rows.map((row) => truncateCell(row[field]).length)));
   const header = fields.map((field, index) => field.padEnd(widths[index])).join("  ");
   const divider = widths.map((width) => "-".repeat(width)).join("  ");
@@ -265,7 +266,7 @@ function defaultFieldsFor(key) {
     events: ["id", "title", "start", "end"],
     contacts: ["id", "name", "email"],
     templates: ["id", "name", "kind", "verb"],
-    threads: ["id", "title", "updated_at"],
+    threads: ["id", "name", "title", "meetings_count", "created_at", "updated_at"],
     notes: ["id", "title", "template_id", "created_at"],
     tools: ["name", "description"],
   };

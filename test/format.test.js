@@ -183,3 +183,49 @@ test("structuredError: includes details when provided", () => {
 test("withHelp: appends help array onto data", () => {
   assert.deepEqual(withHelp({ count: 0 }, ["do X", "do Y"]), { count: 0, help: ["do X", "do Y"] });
 });
+
+const wideMeetings = { result: { meetings: [{ id: "m1", title: "Sync", date: "2026-11-01T10:00:00Z", duration: 30, url: "https://quill.test/m1", tags: "a" }] } };
+
+test("toToon: keeps every field when --fields names more than four", () => {
+  const shaped = shapeForOutput(wideMeetings, { fields: ["id", "title", "date", "duration", "url"] });
+  const out = toToon(shaped);
+  assert.ok(out.includes("meetings[1]{id,title,date,duration,url}:"));
+  assert.ok(out.includes("m1,Sync,2026-11-01T10:00:00Z,30,https://quill.test/m1"));
+});
+
+test("toToon: lists without default fields keep all columns", () => {
+  const out = toToon({ rows: [{ a: 1, b: 2, c: 3, d: 4, e: 5, f: 6 }] });
+  assert.ok(out.includes("rows[1]{a,b,c,d,e,f}:"));
+  assert.ok(out.includes("1,2,3,4,5,6"));
+});
+
+test("toHuman: table shows every --fields column, default stays at four", () => {
+  const fields = ["id", "title", "date", "duration", "url"];
+  const explicit = toHuman(shapeForOutput(wideMeetings, { fields }), { fields });
+  assert.ok(explicit.includes("url"));
+  assert.ok(explicit.includes("https://quill.test/m1"));
+  const fallback = toHuman(wideMeetings);
+  assert.ok(!fallback.includes("url"));
+});
+
+test("toHuman: --fields matching nothing keeps the four-column table", () => {
+  const out = toHuman(wideMeetings, { fields: ["nope"] });
+  assert.ok(out.includes("duration"));
+  assert.ok(!out.includes("url"));
+});
+
+test("shapeForOutput: thread defaults match the fields Quill sends", () => {
+  const out = shapeForOutput({ threads: [{ id: "th1", name: "Roadmap", meetings_count: "3", created_at: "2026-11-01", url: "quill://thread/th1" }] });
+  assert.deepEqual(out.threads[0], { id: "th1", name: "Roadmap", meetings_count: "3", created_at: "2026-11-01" });
+});
+
+test("shapeForOutput: thread defaults keep title and updated_at when rows carry them", () => {
+  const out = shapeForOutput({ threads: [{ id: "th1", title: "Roadmap", updated_at: "2026-11-01", url: "quill://thread/th1" }] });
+  assert.deepEqual(out.threads[0], { id: "th1", title: "Roadmap", updated_at: "2026-11-01" });
+});
+
+test("toHuman: thread updated_at renders as relative time", () => {
+  const out = toHuman({ threads: [{ id: "th1", title: "Roadmap", updated_at: "2020-01-01T00:00:00Z" }] });
+  assert.ok(out.includes("years ago"));
+  assert.ok(!out.includes("2020-01-01"));
+});

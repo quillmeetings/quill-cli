@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, render, useApp, useInput, useWindowSize } from "ink";
-import { extractToolResult } from "./mcp-client.js";
+import { extractToolResult, isErrorResult } from "./mcp-client.js";
 import { buildArgs, findTool } from "./tool-router.js";
 
 const h = React.createElement;
@@ -551,7 +551,12 @@ async function loadMeetingOverview(client, tools, meeting) {
 
 async function callPanelTool(client, tools, action, meeting) {
   const { tool, args } = buildPanelCall(tools, action, meeting);
-  return extractToolResult(await client.callTool(tool.name, args));
+  return throwOnErrorResult(extractToolResult(await client.callTool(tool.name, args)));
+}
+
+export function throwOnErrorResult(result) {
+  if (isErrorResult(result)) throw browserError(result.error.code || "tool_error", result.error.message || "The Quill MCP tool returned an error.");
+  return result;
 }
 
 export function buildPanelCall(tools, action, meeting) {
@@ -607,7 +612,9 @@ function formatMeetingPanel(result, fallbackMeeting) {
 export function formatTextPanel(result, emptyMessage) {
   if (!result) return emptyMessage;
   if (typeof result === "string") return cleanText(result) || emptyMessage;
-  if (typeof result.message === "string") return cleanText(result.message) || emptyMessage;
+  // `message` comes from extractToolResult with tags stripped and entities
+  // decoded; cleaning it again would eat literal text such as Array<string>.
+  if (typeof result.message === "string") return normalizeWhitespace(result.message) || emptyMessage;
   if (typeof result.text === "string") return cleanText(result.text) || emptyMessage;
 
   for (const key of ["notes", "transcripts", "items"]) {
@@ -631,20 +638,22 @@ export function renderRecord(record) {
     .join("\n");
 }
 
+function normalizeWhitespace(value) {
+  return String(value).replace(/\\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export function cleanText(value) {
-  return String(value)
+  const stripped = String(value)
     .replace(/^<ToolResponse>\s*/s, "")
     .replace(/\s*<\/ToolResponse>$/s, "")
     .replace(/<system-instruction>[\s\S]*?<\/system-instruction>/g, "")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
+    .replace(/<[^>]+>/g, "");
+  return normalizeWhitespace(stripped)
     .replaceAll("&quot;", "\"")
     .replaceAll("&apos;", "'")
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")
-    .replaceAll("&amp;", "&")
-    .trim();
+    .replaceAll("&amp;", "&");
 }
 
 export function truncatePanel(value, limit = 5000) {
