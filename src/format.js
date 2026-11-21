@@ -157,7 +157,7 @@ function scalar(value) {
 
 function humanizeRow(item) {
   const row = { ...item };
-  for (const key of ["date", "start", "end", "started_at", "created_at"]) {
+  for (const key of ["date", "start", "end", "started_at", "created_at", "updated_at"]) {
     if (row[key]) row[key] = relativeTime(row[key]);
   }
   return row;

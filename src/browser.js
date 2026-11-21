@@ -643,19 +643,17 @@ function normalizeWhitespace(value) {
 }
 
 export function cleanText(value) {
-  return String(value)
+  const stripped = String(value)
     .replace(/^<ToolResponse>\s*/s, "")
     .replace(/\s*<\/ToolResponse>$/s, "")
     .replace(/<system-instruction>[\s\S]*?<\/system-instruction>/g, "")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
+    .replace(/<[^>]+>/g, "");
+  return normalizeWhitespace(stripped)
     .replaceAll("&quot;", "\"")
     .replaceAll("&apos;", "'")
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")
-    .replaceAll("&amp;", "&")
-    .trim();
+    .replaceAll("&amp;", "&");
 }
 
 export function truncatePanel(value, limit = 5000) {

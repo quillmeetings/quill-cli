@@ -223,3 +223,9 @@ test("shapeForOutput: thread defaults keep title and updated_at when rows carry 
   const out = shapeForOutput({ threads: [{ id: "th1", title: "Roadmap", updated_at: "2026-11-01", url: "quill://thread/th1" }] });
   assert.deepEqual(out.threads[0], { id: "th1", title: "Roadmap", updated_at: "2026-11-01" });
 });
+
+test("toHuman: thread updated_at renders as relative time", () => {
+  const out = toHuman({ threads: [{ id: "th1", title: "Roadmap", updated_at: "2020-01-01T00:00:00Z" }] });
+  assert.ok(out.includes("years ago"));
+  assert.ok(!out.includes("2020-01-01"));
+});
